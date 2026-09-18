@@ -1,0 +1,12 @@
+[Unit]
+Description=Vataic worker
+After=vataic-web.service
+[Container]
+Image=vataic-worker:latest
+Volume=vataic-data.volume:/data
+EnvironmentFile=%h/vataic/.env
+Exec=python -m worker.main
+[Service]
+Restart=always
+[Install]
+WantedBy=default.target

@@ -1,0 +1,44 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+build/
+dist/
+
+# --- venv / uv ---
+.venv/
+venv/
+.uv/
+
+# --- pytest / coverage ---
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.hypothesis/
+
+# --- env / secrets (keep .env.example) ---
+.env
+.env.*
+!.env.example
+
+# --- runtime data (keep dir via .gitkeep) ---
+data/*
+!data/.gitkeep
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite-*
+
+# --- logs / temp ---
+*.log
+*.tmp
+
+# --- OS / editors ---
+.DS_Store
+Thumbs.db
+*~
+.vscode/
+.idea/

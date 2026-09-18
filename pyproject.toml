@@ -1,0 +1,21 @@
+[project]
+name = "vataic"
+version = "0.1.0"
+description = "Vataic world projector - durable scenario laboratory"
+requires-python = ">=3.11"
+dependencies = [
+  "flask>=3.0",
+  "gunicorn>=21.0",
+  "temporalio>=1.5",
+  "requests>=2.31",
+  "numpy>=1.26",
+  "pydantic>=2.0",
+  "scikit-learn>=1.3",
+  "python-dotenv>=1.0",
+]
+
+[dependency-groups]
+dev = ["pytest>=8.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

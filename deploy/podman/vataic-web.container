@@ -1,0 +1,12 @@
+[Unit]
+Description=Vataic web
+After=network-online.target
+[Container]
+Image=vataic-web:latest
+PublishPort=5000:5000
+Volume=vataic-data.volume:/data
+EnvironmentFile=%h/vataic/.env
+[Service]
+Restart=always
+[Install]
+WantedBy=default.target
