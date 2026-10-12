@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Settings — Vataic{% endblock %}
+{% block content %}
+<div class="settings-card">
+  <h1>Settings</h1>
+  <div class="settings-section">
+    <h2>LLM Provider</h2>
+    <p class="muted">Configure the LLM provider used for scenario generation.</p>
+    <div class="provider-status">
+      <span class="provider-label">Provider:</span>
+      <span class="provider-value">{{ provider_name or "Not configured" }}</span>
+    </div>
+    <div class="provider-status">
+      <span class="provider-label">Model:</span>
+      <span class="provider-value">{{ model_name or "Not configured" }}</span>
+    </div>
+    <div class="provider-status">
+      <span class="provider-label">Status:</span>
+      <span class="provider-value">{{ provider_status or "n/a" }}</span>
+    </div>
+  </div>
+  <div class="settings-section">
+    <h2>API Keys</h2>
+    <p class="muted">API keys are stored securely and never exposed in the UI.</p>
+    <div class="provider-status">
+      <span class="provider-label">LLM Key:</span>
+      <span class="provider-value">{{ "set" if llm_key_set else "not set" }}</span>
+    </div>
+    <div class="provider-status">
+      <span class="provider-label">Data Source Key:</span>
+      <span class="provider-value">{{ "set" if data_key_set else "not set" }}</span>
+    </div>
+  </div>
+  <div class="settings-section">
+    <h2>Project Info</h2>
+    <div class="provider-status">
+      <span class="provider-label">Version:</span>
+      <span class="provider-value">{{ version }}</span>
+    </div>
+    <div class="provider-status">
+      <span class="provider-label">Database:</span>
+      <span class="provider-value">{{ db_path or "not set" }}</span>
+    </div>
+  </div>
+</div>
+{% endblock %}

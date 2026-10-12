@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Vataic{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="app-header">
+      <div class="brand">
+        <a href="/" class="brand-logo">Vataic</a>
+      </div>
+      <nav class="app-nav">
+        <a href="/" class="nav-link">Jobs</a>
+        <a href="/jobs/new" class="nav-link">New Job</a>
+        <a href="/personal" class="nav-link">Personal</a>
+        <a href="/settings" class="nav-link">Settings</a>
+      </nav>
+    </header>
+    <main class="app-main">
+      {% if messages %}
+        <div class="status-flash">
+          {% for m in messages %}
+            <div class="flash flash-{{ m.type if m.type else 'info' }}">{{ m.message }}</div>
+          {% endfor %}
+        </div>
+      {% endif %}
+      {% block content %}{% endblock %}
+    </main>
+    <footer class="app-footer">
+      <span class="footer-brand">Vataic &mdash; Structured scenario projection engine</span>
+    </footer>
+  </div>
+  <script src="{{ url_for('static', filename='htmx.min.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

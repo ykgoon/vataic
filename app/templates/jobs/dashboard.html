@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Jobs — Vataic{% endblock %}
+{% block content %}
+<div class="jobs-dashboard">
+  <div class="dashboard-header">
+    <h1>Jobs</h1>
+    <a href="/jobs/new" class="btn btn-primary">+ New Job</a>
+  </div>
+  <div class="jobs-table-wrapper">
+    <table class="jobs-table">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Premise</th>
+          <th>Status</th>
+          <th>Step</th>
+          <th>Updated</th>
+          <th>Error</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% include "jobs/partial.html" %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

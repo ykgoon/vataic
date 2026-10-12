@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}New Job — Vataic{% endblock %}
+{% block content %}
+<div class="new-job-card">
+  <h1>New Job</h1>
+  <form method="post" action="/jobs" class="job-form">
+    <div class="form-group">
+      <label for="premise">Premise (required)</label>
+      <textarea id="premise" name="premise" rows="4" required placeholder="Describe the premise...">{{ premise or '' }}</textarea>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="scope">Scope</label>
+        <select id="scope" name="scope">
+          <option value="personal">Personal</option>
+          <option value="team">Team</option>
+          <option value="company">Company</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="reality_mode">Reality Mode</label>
+        <select id="reality_mode" name="reality_mode">
+          <option value="single">Single</option>
+          <option value="multiple">Multiple</option>
+          <option value="all">All</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="horizon">Horizon</label>
+        <select id="horizon" name="horizon">
+          <option value="1">1 year</option>
+          <option value="3">3 years</option>
+          <option value="5">5 years</option>
+          <option value="10">10 years</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="max_outcomes">Max Outcomes</label>
+        <input type="number" id="max_outcomes" name="max_outcomes" min="1" max="50" value="10">
+      </div>
+    </div>
+    <button type="submit" class="btn btn-primary btn-lg">Start Projection</button>
+  </form>
+</div>
+{% endblock %}

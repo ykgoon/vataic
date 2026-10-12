@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Job {{ job.id[:8] }} — Vataic{% endblock %}
+{% block content %}
+<div class="job-detail-card">
+  <div class="job-detail-header">
+    <h1>Job {{ job.id }}</h1>
+    <span class="status-badge status-{{ job.status|lower }}" id="status-{{ job.id }}">{{ job.status }}</span>
+  </div>
+  <div class="job-premise">
+    <h2>Premise</h2>
+    <p class="premise-text">{{ job.premise }}</p>
+  </div>
+  <div class="job-meta-grid">
+    <div class="meta-item">
+      <span class="meta-label">Scope</span>
+      <span class="meta-value">{{ job.scope or "—" }}</span>
+    </div>
+    <div class="meta-item">
+      <span class="meta-label">Reality Mode</span>
+      <span class="meta-value">{{ job.reality_mode or "—" }}</span>
+    </div>
+    <div class="meta-item">
+      <span class="meta-label">Horizon</span>
+      <span class="meta-value">{{ job.horizon or "—" }}</span>
+    </div>
+    <div class="meta-item">
+      <span class="meta-label">Outcome Count</span>
+      <span class="meta-value">{{ job.outcome_count or "—" }}</span>
+    </div>
+  </div>
+  <div class="job-progress">
+    <h2>Progress</h2>
+    <div class="progress-bar-wrapper">
+      <div class="progress-bar" style="width: {{ progress_pct|default(0) }}%"></div>
+    </div>
+    <div class="progress-info">
+      <span class="phase">{{ checkpoint.phase or "—" }}</span>
+      <span class="step">Step {{ checkpoint.step_index or 0 }}</span>
+    </div>
+  </div>
+  <div class="job-outcomes">
+    <h2>Outcomes</h2>
+    {% if outcomes|length == 0 %}
+      <p class="empty">No outcomes yet.</p>
+    {% else %}
+      <div class="outcomes-grid">
+        {% for o in outcomes %}
+        <div class="outcome-card">
+          <h3>{{ o.step_id }}: {{ o.phase or "—" }}</h3>
+          <p class="outcome-text">{{ o.text[:200] }}{% if o.text|length > 200 %}...{% endif %}</p>
+        </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </div>
+  <div class="job-actions">
+    <a href="/results" class="btn btn-primary">View Results</a>
+    {% if job.status == 'FAILED' %}
+    <button hx-post="/jobs/{{ job.id }}/retry" hx-target="#status-{{ job.id }}" hx-swap="innerHTML" class="btn btn-secondary">Retry</button>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
