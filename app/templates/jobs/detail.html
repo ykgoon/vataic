@@ -4,12 +4,14 @@
 <div class="job-detail-card">
   <div class="job-detail-header">
     <h1>Job {{ job.id }}</h1>
-    <span class="status-badge status-{{ job.status|lower }}" id="status-{{ job.id }}">{{ job.status }}</span>
+    <span class="status-badge status-{{ job.status|lower }}">{% if job.status == 'COMPLETED' %}Completed{% elif job.status == 'FAILED' %}Failed{% elif job.status == 'RUNNING' %}Running{% else %}{{ job.status }}{% endif %}</span>
   </div>
+
   <div class="job-premise">
     <h2>Premise</h2>
     <p class="premise-text">{{ job.premise }}</p>
   </div>
+
   <div class="job-meta-grid">
     <div class="meta-item">
       <span class="meta-label">Scope</span>
@@ -28,33 +30,86 @@
       <span class="meta-value">{{ job.outcome_count or "—" }}</span>
     </div>
   </div>
+
+  {% if job.error %}
+  <div class="job-error">
+    <h2>Error</h2>
+    <p class="error-text">{{ job.error }}</p>
+  </div>
+  {% endif %}
+
   <div class="job-progress">
     <h2>Progress</h2>
     <div class="progress-bar-wrapper">
       <div class="progress-bar" style="width: {{ progress_pct|default(0) }}%"></div>
     </div>
     <div class="progress-info">
-      <span class="phase">{{ checkpoint.phase or "—" }}</span>
-      <span class="step">Step {{ checkpoint.step_index or 0 }}</span>
+      <span class="phase">Phase: {{ checkpoint.phase or job.current_phase or "—" }}</span>
+      <span class="step">Step {{ checkpoint.step_index or job.current_step or 0 }}</span>
+    </div>
+    <div class="progress-meta">
+      <span class="meta-label">Elapsed:</span> <span class="meta-value">{{ elapsed_text }}</span>
+      <span class="meta-label">Est. completion:</span> <span class="meta-value">{{ eta_text }}</span>
     </div>
   </div>
+
+  <div class="job-budget">
+    <h2>Budget Usage</h2>
+    <div class="budget-grid">
+      <div class="budget-item">
+        <span class="meta-label">LLM Calls</span>
+        <span class="meta-value">{{ llm_calls }} / {{ budget.llm_calls_max|default(500) }}</span>
+        <div class="budget-bar"><div class="budget-fill" style="width: {{ budget_pct.llm_calls|default(0) }}%"></div></div>
+      </div>
+      <div class="budget-item">
+        <span class="meta-label">Tokens</span>
+        <span class="meta-value">{{ llm_tokens|int }} / {{ budget.tokens_max|default(500000) }}</span>
+        <div class="budget-bar"><div class="budget-fill" style="width: {{ budget_pct.tokens|default(0) }}%"></div></div>
+      </div>
+      <div class="budget-item">
+        <span class="meta-label">Steps</span>
+        <span class="meta-value">{{ job.current_step|default(0) }} / {{ budget.steps_max|default(40) }}</span>
+        <div class="budget-bar"><div class="budget-fill" style="width: {{ budget_pct.steps|default(0) }}%"></div></div>
+      </div>
+      <div class="budget-item">
+        <span class="meta-label">Branches</span>
+        <span class="meta-value">{{ budget.branches_used|default(0) }} / {{ budget.branches_max|default(20) }}</span>
+        <div class="budget-bar"><div class="budget-fill" style="width: {{ budget_pct.branches|default(0) }}%"></div></div>
+      </div>
+    </div>
+  </div>
+
   <div class="job-outcomes">
     <h2>Outcomes</h2>
     {% if outcomes|length == 0 %}
-      <p class="empty">No outcomes yet.</p>
+      <p class="empty">No outcomes yet. The projection is still running.</p>
     {% else %}
       <div class="outcomes-grid">
         {% for o in outcomes %}
         <div class="outcome-card">
-          <h3>{{ o.step_id }}: {{ o.phase or "—" }}</h3>
-          <p class="outcome-text">{{ o.text[:200] }}{% if o.text|length > 200 %}...{% endif %}</p>
+          <div class="outcome-header">
+            <span class="outcome-name">{{ o.name }}</span>
+            <span class="outcome-prob">{{ (o.probability|float)*100|round(0)|int }}%</span>
+          </div>
+          <span class="band badge-{{ o.band|lower }}">{{ o.band }}</span>
+          <p class="outcome-text">{{ o.summary[:200] }}{% if o.summary|length > 200 %}...{% endif %}</p>
         </div>
         {% endfor %}
       </div>
     {% endif %}
   </div>
+
   <div class="job-actions">
-    <a href="/results" class="btn btn-primary">View Results</a>
+    <a href="/results/{{ job.id }}" class="btn btn-primary">View Results</a>
+    {% if job.status in ['RUNNING', 'CHECKPOINTING'] %}
+    <button hx-post="/jobs/{{ job.id }}/suspend" hx-target="#status-{{ job.id }}" hx-swap="innerHTML" class="btn btn-secondary">Suspend</button>
+    {% endif %}
+    {% if job.status == 'SUSPENDED' %}
+    <button hx-post="/jobs/{{ job.id }}/resume" hx-target="#status-{{ job.id }}" hx-swap="innerHTML" class="btn btn-secondary">Resume</button>
+    {% endif %}
+    {% if job.status in ['RUNNING', 'CHECKPOINTING', 'SUSPENDED'] %}
+    <button hx-post="/jobs/{{ job.id }}/cancel" hx-target="#status-{{ job.id }}" hx-swap="innerHTML" class="btn btn-danger">Cancel</button>
+    {% endif %}
     {% if job.status == 'FAILED' %}
     <button hx-post="/jobs/{{ job.id }}/retry" hx-target="#status-{{ job.id }}" hx-swap="innerHTML" class="btn btn-secondary">Retry</button>
     {% endif %}

@@ -18,7 +18,8 @@ def create_app(config_override: dict | None = None) -> Flask:
 
     @app.get("/")
     def index():
-        return render_template("jobs/dashboard.html", jobs=[])
+        from app.jobs.repositories import list_jobs
+        return render_template("jobs/dashboard.html", jobs=list_jobs())
 
     @app.get("/healthz")
     def healthz():

@@ -1,6 +1,6 @@
 """Job routes: submission form, dashboard with htmx polling, detail + controls."""
 import json
-from flask import Blueprint, request, redirect, url_for, render_template
+from flask import Blueprint, request, redirect, url_for, render_template, flash
 
 bp = Blueprint("jobs", __name__)
 
@@ -14,13 +14,17 @@ def new_form():
 def new_job():
     from app.jobs.repositories import create_job
     jid = create_job(
-        request.form.get("premise", ""),
-        request.form.get("scope", "macro"),
-        request.form.get("reality_mode", "grounded"),
-        request.form.get("horizon", "auto"),
-        request.form.get("outcome_count", "7"),
-        request.form.get("budget_limit", "500000"),
-        request.form.get("detail_level", "standard"),
+        premise=request.form.get("premise", ""),
+        scope=request.form.get("scope", "macro"),
+        reality_mode=request.form.get("reality_mode", "grounded"),
+        horizon=request.form.get("horizon", "auto"),
+        outcome_count=request.form.get("outcome_count", "7"),
+    )
+    # Spec: communicate that the projection may take hours and browser may be closed
+    flash(
+        f"Job {jid} accepted. Projections run asynchronously and may take a long time. "
+        "You can close your browser after submitting; check back later for results.",
+        "success",
     )
     return redirect(f"/jobs/{jid}")
 
@@ -42,9 +46,36 @@ def dashboard_partial():
 @bp.get("/jobs/<jid>")
 def detail(jid):
     from app.jobs.repositories import get_job, latest_checkpoint
+    from app.db import get_conn
     j = get_job(jid) or {}
     cp = latest_checkpoint(jid) or {}
     b = json.loads(j.get("budget_state", "{}")) if j.get("budget_state") else {}
+
+    # Outcomes
+    with get_conn() as c:
+        outs = [dict(r) for r in c.execute(
+            "SELECT * FROM outcomes WHERE job_id=?", (jid,))]
+
+    # LLM call stats from llm_calls table (token counts not stored per-call;
+    # use budget_state which the worker updates with aggregate totals)
+    llm_calls = b.get("llm_calls", 0)
+    llm_tokens = b.get("tokens", 0)
+
+    # Budget usage percentages (from budget_state: used + caps)
+    caps = b.get("caps", {})
+    llm_calls_used = b.get("llm_calls", 0)
+    tokens_used = b.get("tokens", 0)
+    steps_used = b.get("steps", 0)
+    llm_calls_max = caps.get("llm_calls", b.get("llm_calls_max", 500)) or 500
+    tokens_max = caps.get("tokens", b.get("tokens_max", 500000)) or 500000
+    steps_max = caps.get("steps", b.get("steps_max", 40)) or 40
+    branches_max = b.get("branches_max", 20) or 20
+    budget_pct = {
+        "llm_calls": round(llm_calls_used / max(llm_calls_max, 1) * 100),
+        "tokens": round(tokens_used / max(tokens_max, 1) * 100),
+        "steps": round(steps_used / max(steps_max, 1) * 100),
+        "branches": 0,
+    }
 
     # Calculate progress
     phase = j.get("current_phase", "")
@@ -74,9 +105,24 @@ def detail(jid):
     except Exception:
         elapsed_text = "n/a"
 
+    # Estimated completion (simple heuristic: remaining steps * checkpoint interval)
+    eta_text = "n/a"
+    try:
+        if j.get("status") in ("RUNNING", "CHECKPOINTING"):
+            from datetime import datetime, timedelta
+            now = datetime.fromisoformat(j["updated_at"]) if j.get("updated_at") else datetime.utcnow()
+            remaining_steps = max(40 - int(step), 0) if step else 40
+            eta = now + timedelta(minutes=remaining_steps * 15)
+            eta_text = eta.strftime("%H:%M %d %b")
+    except Exception:
+        eta_text = "n/a"
+
     return render_template("jobs/detail.html",
         job=j, checkpoint=cp, budget=b,
-        progress_pct=progress_pct, elapsed_text=elapsed_text)
+        progress_pct=progress_pct, elapsed_text=elapsed_text,
+        outcomes=outs,
+        llm_calls=llm_calls, llm_tokens=llm_tokens,
+        budget_pct=budget_pct, eta_text=eta_text)
 
 
 def _ctrl(jid, action):

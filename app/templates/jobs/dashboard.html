@@ -19,7 +19,10 @@
           <th></th>
         </tr>
       </thead>
-      <tbody>
+      <tbody id="jobs-tbody"
+               hx-get="/jobs/partial"
+               hx-trigger="interval:3000, request:after"
+               hx-swap="innerHTML">
         {% include "jobs/partial.html" %}
       </tbody>
     </table>

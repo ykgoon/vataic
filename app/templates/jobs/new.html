@@ -3,7 +3,7 @@
 {% block content %}
 <div class="new-job-card">
   <h1>New Job</h1>
-  <form method="post" action="/jobs" class="job-form">
+  <form method="post" action="/jobs/new" class="job-form">
     <div class="form-group">
       <label for="premise">Premise (required)</label>
       <textarea id="premise" name="premise" rows="4" required placeholder="Describe the premise...">{{ premise or '' }}</textarea>
@@ -41,6 +41,35 @@
         <input type="number" id="max_outcomes" name="max_outcomes" min="1" max="50" value="10">
       </div>
     </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="detail_level">Detail level</label>
+        <select id="detail_level" name="detail_level">
+          <option value="brief">Brief</option>
+          <option value="standard" selected>Standard</option>
+          <option value="detailed">Detailed</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="budget_limit">Budget limit (LLM calls)</label>
+        <input type="number" id="budget_limit" name="budget_limit" min="10" max="500" value="50">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="perspective">Perspective</label>
+        <select id="perspective" name="perspective">
+          <option value="neutral" selected>Neutral</option>
+          <option value="optimist">Optimist</option>
+          <option value="pessimist">Pessimist</option>
+          <option value="realist">Realist</option>
+        </select>
+      </div>
+    </div>
+    <p class="notice">
+      Projections run asynchronously and may take a long time. You can close
+      your browser after submitting; check back later for results.
+    </p>
     <button type="submit" class="btn btn-primary btn-lg">Start Projection</button>
   </form>
 </div>
