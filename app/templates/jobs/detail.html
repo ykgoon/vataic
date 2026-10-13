@@ -1,40 +1,40 @@
 {% extends "base.html" %}
-{% block title %}Job {{ job.id[:8] }} — Vataic{% endblock %}
+{% block title %}Job {{ job["id"][:8] }} — Vataic{% endblock %}
 {% block content %}
 <div class="job-detail-card">
   <div class="job-detail-header">
-    <h1>Job {{ job.id }}</h1>
-    <span class="status-badge status-{{ job.status|lower }}">{% if job.status == 'COMPLETED' %}Completed{% elif job.status == 'FAILED' %}Failed{% elif job.status == 'RUNNING' %}Running{% else %}{{ job.status }}{% endif %}</span>
+    <h1>Job {{ job["id"] }}</h1>
+    <span class="status-badge status-{{ job["status"]|lower }}">{% if job["status"] == 'COMPLETED' %}Completed{% elif job["status"] == 'FAILED' %}Failed{% elif job["status"] == 'RUNNING' %}Running{% else %}{{ job["status"] }}{% endif %}</span>
   </div>
 
   <div class="job-premise">
     <h2>Premise</h2>
-    <p class="premise-text">{{ job.premise }}</p>
+    <p class="premise-text">{{ job["premise"] }}</p>
   </div>
 
   <div class="job-meta-grid">
     <div class="meta-item">
       <span class="meta-label">Scope</span>
-      <span class="meta-value">{{ job.scope or "—" }}</span>
+      <span class="meta-value">{{ job["scope"] or "—" }}</span>
     </div>
     <div class="meta-item">
       <span class="meta-label">Reality Mode</span>
-      <span class="meta-value">{{ job.reality_mode or "—" }}</span>
+      <span class="meta-value">{{ job["reality_mode"] or "—" }}</span>
     </div>
     <div class="meta-item">
       <span class="meta-label">Horizon</span>
-      <span class="meta-value">{{ job.horizon or "—" }}</span>
+      <span class="meta-value">{{ job["horizon"] or "—" }}</span>
     </div>
     <div class="meta-item">
       <span class="meta-label">Outcome Count</span>
-      <span class="meta-value">{{ job.outcome_count or "—" }}</span>
+      <span class="meta-value">{{ job["outcome_count"] or "—" }}</span>
     </div>
   </div>
 
-  {% if job.error %}
+  {% if job["error"] %}
   <div class="job-error">
     <h2>Error</h2>
-    <p class="error-text">{{ job.error }}</p>
+    <p class="error-text">{{ job["error"] }}</p>
   </div>
   {% endif %}
 
@@ -44,8 +44,8 @@
       <div class="progress-bar" style="width: {{ progress_pct|default(0) }}%"></div>
     </div>
     <div class="progress-info">
-      <span class="phase">Phase: {{ checkpoint.phase or job.current_phase or "—" }}</span>
-      <span class="step">Step {{ checkpoint.step_index or job.current_step or 0 }}</span>
+      <span class="phase">Phase: {{ checkpoint["phase"] or job["current_phase"] or "—" }}</span>
+      <span class="step">Step {{ checkpoint["step_index"] or job["current_step"] or 0 }}</span>
     </div>
     <div class="progress-meta">
       <span class="meta-label">Elapsed:</span> <span class="meta-value">{{ elapsed_text }}</span>
@@ -68,7 +68,7 @@
       </div>
       <div class="budget-item">
         <span class="meta-label">Steps</span>
-        <span class="meta-value">{{ job.current_step|default(0) }} / {{ budget.steps_max|default(40) }}</span>
+        <span class="meta-value">{{ job["current_step"]|default(0) }} / {{ budget.steps_max|default(40) }}</span>
         <div class="budget-bar"><div class="budget-fill" style="width: {{ budget_pct.steps|default(0) }}%"></div></div>
       </div>
       <div class="budget-item">
@@ -88,11 +88,11 @@
         {% for o in outcomes %}
         <div class="outcome-card">
           <div class="outcome-header">
-            <span class="outcome-name">{{ o.name }}</span>
-            <span class="outcome-prob">{{ (o.probability|float)*100|round(0)|int }}%</span>
+            <span class="outcome-name">{{ o["name"] }}</span>
+            <span class="outcome-prob">{{ (o["probability"]|float)*100|round(0)|int }}%</span>
           </div>
-          <span class="band badge-{{ o.band|lower }}">{{ o.band }}</span>
-          <p class="outcome-text">{{ o.summary[:200] }}{% if o.summary|length > 200 %}...{% endif %}</p>
+          <span class="band badge-{{ o["band"]|lower }}">{{ o["band"] }}</span>
+          <p class="outcome-text">{{ o["summary"][:200] }}{% if o["summary"]|length > 200 %}...{% endif %}</p>
         </div>
         {% endfor %}
       </div>
@@ -100,18 +100,18 @@
   </div>
 
   <div class="job-actions">
-    <a href="/results/{{ job.id }}" class="btn btn-primary">View Results</a>
-    {% if job.status in ['RUNNING', 'CHECKPOINTING'] %}
-    <button hx-post="/jobs/{{ job.id }}/suspend" hx-target="#status-{{ job.id }}" hx-swap="innerHTML" class="btn btn-secondary">Suspend</button>
+    <a href="/results/{{ job["id"] }}" class="btn btn-primary">View Results</a>
+    {% if job["status"] in ['RUNNING', 'CHECKPOINTING'] %}
+    <button hx-post="/jobs/{{ job["id"] }}/suspend" hx-target="#status-{{ job["id"] }}" hx-swap="innerHTML" class="btn btn-secondary">Suspend</button>
     {% endif %}
-    {% if job.status == 'SUSPENDED' %}
-    <button hx-post="/jobs/{{ job.id }}/resume" hx-target="#status-{{ job.id }}" hx-swap="innerHTML" class="btn btn-secondary">Resume</button>
+    {% if job["status"] == 'SUSPENDED' %}
+    <button hx-post="/jobs/{{ job["id"] }}/resume" hx-target="#status-{{ job["id"] }}" hx-swap="innerHTML" class="btn btn-secondary">Resume</button>
     {% endif %}
-    {% if job.status in ['RUNNING', 'CHECKPOINTING', 'SUSPENDED'] %}
-    <button hx-post="/jobs/{{ job.id }}/cancel" hx-target="#status-{{ job.id }}" hx-swap="innerHTML" class="btn btn-danger">Cancel</button>
+    {% if job["status"] in ['RUNNING', 'CHECKPOINTING', 'SUSPENDED'] %}
+    <button hx-post="/jobs/{{ job["id"] }}/cancel" hx-target="#status-{{ job["id"] }}" hx-swap="innerHTML" class="btn btn-danger">Cancel</button>
     {% endif %}
-    {% if job.status == 'FAILED' %}
-    <button hx-post="/jobs/{{ job.id }}/retry" hx-target="#status-{{ job.id }}" hx-swap="innerHTML" class="btn btn-secondary">Retry</button>
+    {% if job["status"] == 'FAILED' %}
+    <button hx-post="/jobs/{{ job["id"] }}/retry" hx-target="#status-{{ job["id"] }}" hx-swap="innerHTML" class="btn btn-secondary">Retry</button>
     {% endif %}
   </div>
 </div>
