@@ -1,9 +1,15 @@
 services:
   temporal:
-    image: temporalio/admin-tools:1.22
-    command: temporal server start-dev --db-filename /data/temporal.db --ip 0.0.0.0
+    image: temporalio/temporal:latest
+    command: server start-dev --ip 0.0.0.0
     ports: ["7233:7233", "8233:8233"]
     volumes: ["./data:/data"]
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "7233"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 45s
   web:
     build: { context: ., dockerfile: Dockerfile.web }
     env_file: [.env]
@@ -13,7 +19,9 @@ services:
       TEMPORAL_ADDRESS: temporal:7233
     ports: ["5000:5000"]
     volumes: ["./data:/data"]
-    depends_on: [temporal]
+    depends_on:
+      temporal:
+        condition: service_healthy
   worker:
     build: { context: ., dockerfile: Dockerfile.worker }
     env_file: [.env]
@@ -22,4 +30,6 @@ services:
       ARTIFACT_DIR: /data/artifacts
       TEMPORAL_ADDRESS: temporal:7233
     volumes: ["./data:/data"]
-    depends_on: [temporal, web]
+    depends_on:
+      temporal:
+        condition: service_healthy
