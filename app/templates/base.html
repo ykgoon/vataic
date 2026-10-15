@@ -7,32 +7,33 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
 </head>
 <body>
-  <div class="app">
-    <header class="site-header">
-      <a href="/" class="brand">Vataic</a>
-      <nav class="site-nav">
-        <a href="/" class="nav-link {% if not request.path == '/' %}active{% endif %}">Home</a>
-        <a href="/jobs" class="nav-link {% if request.path.startswith('/jobs') %}active{% endif %}">Jobs</a>
-        <a href="/personal" class="nav-link {% if request.path.startswith('/personal') %}active{% endif %}">Personal</a>
-        <a href="/settings" class="nav-link {% if request.path.startswith('/settings') %}active{% endif %}">Settings</a>
+  <div class="app-shell">
+    <header class="app-header">
+      <div class="brand">
+        <a href="/" class="brand-logo">Vataic</a>
+      </div>
+      <nav class="app-nav">
+        <a href="/" class="nav-link">Jobs</a>
+        <a href="/jobs/new" class="nav-link">New Job</a>
+        <a href="/personal" class="nav-link">Personal</a>
+        <a href="/settings" class="nav-link">Settings</a>
       </nav>
     </header>
-    <main class="site-main">
+    <main class="app-main">
+      {% if messages %}
+        <div class="status-flash">
+          {% for m in messages %}
+            <div class="flash flash-{{ m.type if m.type else 'info' }}">{{ m.message }}</div>
+          {% endfor %}
+        </div>
+      {% endif %}
       {% block content %}{% endblock %}
     </main>
-    <footer class="site-footer">
-      <p>Vataic &mdash; Structured scenario projection engine</p>
+    <footer class="app-footer">
+      <span class="footer-brand">Vataic &mdash; Structured scenario projection engine</span>
     </footer>
   </div>
+  <script src="{{ url_for('static', filename='htmx.min.js') }}"></script>
   <script src="{{ url_for('static', filename='js/app.js') }}"></script>
-  <script>
-    // Simple status flash
-    document.addEventListener('DOMContentLoaded', function() {
-      const flash = document.getElementById('status-flash');
-      if (flash) {
-        setTimeout(function() { flash.classList.remove('show'); }, 3000);
-      }
-    });
-  </script>
 </body>
 </html>

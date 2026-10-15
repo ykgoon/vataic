@@ -2,7 +2,7 @@
 {% block title %}Personal Builder &mdash; Vataic{% endblock %}
 {% block content %}
 <div class="personal-card">
-  <h1>Personal Builder &mdash; Job {{ job.id[:8] }}</h1>
+  <h1>Personal Builder &mdash; Job {{ job["id"][:8] }}</h1>
   <p class="review-hint">Define your personal scenario parameters. All personal data is private by default.</p>
   {% if subject %}
   <div class="review-section">
@@ -12,7 +12,7 @@
   {% endif %}
   <div class="review-section">
     <h2>Edit Profile</h2>
-    <form method="post" action="/personal/{{ job.id }}">
+    <form method="post" action="/personal/{{ job["id"] }}">
       <textarea name="profile" rows="8" cols="70" placeholder='{"goals": ["Retire by 55"], "constraints": ["No debt"]}'>{{ json.dumps(subject, indent=2, default=str) if subject else '{"goals": []}' }}</textarea>
       <div class="form-actions">
         <button type="submit" class="btn btn-primary">Save Profile</button>
@@ -20,8 +20,8 @@
     </form>
   </div>
   <div class="actions-row">
-    <button hx-post="/personal/{{ job.id }}/export" class="btn btn-secondary">Export</button>
-    <button hx-post="/personal/{{ job.id }}/delete" class="btn btn-danger" onclick="return confirm('Delete all personal data?')">Delete Personal Data</button>
+    <button hx-post="/personal/{{ job["id"] }}/export" class="btn btn-secondary">Export</button>
+    <button hx-post="/personal/{{ job["id"] }}/delete" class="btn btn-danger" onclick="return confirm('Delete all personal data?')">Delete Personal Data</button>
   </div>
 </div>
 {% endblock %}

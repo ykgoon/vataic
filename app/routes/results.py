@@ -1,8 +1,25 @@
 """Results explorer: outcome cards, timeline tree, factor trajectories (htmx swaps)."""
 from flask import Blueprint, render_template
 import json
+import html
 
 bp = Blueprint("results", __name__)
+
+
+def _split_lines(value, n=5):
+    """Split a JSON-ish string into lines (handles JSON arrays or newline-delimited)."""
+    if not value:
+        return []
+    try:
+        v = json.loads(value)
+        if isinstance(v, list):
+            return [str(x) for x in v][:n]
+    except Exception:
+        pass
+    # Fallback: split on newlines, commas, or semicolons
+    import re
+    parts = re.split(r"[\n;]|, ", str(value))
+    return [p.strip() for p in parts if p.strip()][:n]
 
 
 @bp.get("/results/<jid>")
@@ -31,11 +48,42 @@ def outcome_detail(jid, oid):
             "SELECT particle_id FROM outcome_particle_memberships WHERE outcome_id=?", (oid,)).fetchall()
     if not o:
         return "<p>missing</p>"
-    return (f"<h2>{o['name']} {o['probability']:.0%} [{o['band']}]</h2>"
-            f"<p>{o['explanation']}</p>"
-            f"<p>causal path: {o['causal_path'][:1000]}</p>"
-            f"<p>indicators: {o['indicators'][:500]}</p>"
-            f"<p>alternatives: {', '.join(a['particle_id'] for a in alts)}</p>")
+
+    name = html.escape(o["name"] or "Untitled")
+    prob = o["probability"]
+    band = html.escape(o["band"] or "unknown")
+    summary = html.escape(o["summary"] or "")
+    causal = html.escape(o["causal_path"] or "n/a")
+    indicators = _split_lines(o["indicators"])
+    assumptions = _split_lines(o["assumptions"])
+    risks = _split_lines(o["risks"])
+    explanation = html.escape(o["explanation"] or "No explanation recorded.")
+    factors = _split_lines(o["factor_states"])
+    alts_list = [html.escape(a["particle_id"]) for a in alts]
+
+    def ul(items, cls):
+        if not items:
+            return ""
+        lis = "".join(f"<li>{i}</li>" for i in items)
+        return f"<ul class='{cls}'>{lis}</ul>"
+
+    parts = []
+    parts.append(f"<h2 class='outcome-detail-name'>{name} <span class='outcome-prob'>{prob:.0%}</span> [{band}]</h2>")
+    parts.append(f"<p class='outcome-detail-summary'>{summary}</p>")
+    parts.append(f"<p class='outcome-detail-causal'><strong>Causal path:</strong> {causal}</p>")
+    if indicators:
+        parts.append(f"<p class='outcome-detail-indicators'><strong>Leading indicators:</strong> {ul(indicators, 'indicator-list')}</p>")
+    if assumptions:
+        parts.append(f"<p class='outcome-detail-assumptions'><strong>Assumptions:</strong> {ul(assumptions, 'assumption-list')}</p>")
+    if risks:
+        parts.append(f"<p class='outcome-detail-risks'><strong>Risks:</strong> {ul(risks, 'risk-list')}</p>")
+    if explanation:
+        parts.append(f"<details class='outcome-detail-explanation'><summary>Expandable explanation</summary><p>{explanation}</p></details>")
+    if alts_list:
+        parts.append(f"<p class='outcome-detail-alts'><strong>Alternative particles:</strong> {', '.join(alts_list)}</p>")
+    if factors:
+        parts.append(f"<p class='outcome-detail-factors'><strong>Key factors:</strong> {', '.join(factors)}</p>")
+    return "".join(parts)
 
 
 @bp.get("/results/<jid>/tree")

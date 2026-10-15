@@ -1,20 +1,64 @@
 {% extends "base.html" %}
-{% block title %}Results &mdash; Job {{ job.id[:8] }}{% endblock %}
+{% block title %}Results — Job {{ job["id"][:8] }}{% endblock %}
 {% block content %}
 <div class="results-card">
-  <h1>Outcomes &mdash; Job {{ job.id[:8] }}</h1>
+  <h1>Outcomes — Job {{ job["id"][:8] }}</h1>
   <p class="muted">Structured scenario explorations, not predictions.</p>
 
   {% if outcomes %}
   <div class="outcome-grid">
     {% for o in outcomes %}
-    <div class="outcome-card" hx-get="/results/{{ job.id }}/outcome/{{ o.id }}" hx-trigger="click" hx-target="#detail">
+    <div class="outcome-card" hx-get="/results/{{ job["id"] }}/outcome/{{ o["id"] }}" hx-trigger="click" hx-target="#detail">
       <div class="outcome-header">
-        <span class="outcome-name">{{ o.name }}</span>
-        <span class="outcome-prob">{{ '%.0f' | format(o.probability * 100) }}%</span>
+        <span class="outcome-name">{{ o["name"] }}</span>
+        <span class="outcome-prob">{{ (o["probability"]|float)*100|round(0)|int }}%</span>
       </div>
-      <span class="band badge-{{ o.band|lower }}">{{ o.band }}</span>
-      <p class="outcome-summary">{{ o.summary[:200] }}</p>
+      <span class="band badge-{{ o["band"]|lower }}">{{ o["band"] }}</span>
+      <p class="outcome-summary">{{ o["summary"][:200] }}</p>
+
+      {% if o["factor_states"] %}
+      <div class="outcome-factors">
+        <span class="outcome-label">Key factors</span>
+        <ul class="factor-list">
+          {% for fs in o["factor_states"].splitlines()[:5] %}
+          <li>{{ fs }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+
+      {% if o["indicators"] %}
+      <div class="outcome-indicators">
+        <span class="outcome-label">Leading indicators</span>
+        <ul class="indicator-list">
+          {% for ind in o["indicators"].splitlines()[:5] %}
+          <li>{{ ind }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+
+      {% if o["assumptions"] %}
+      <div class="outcome-assumptions">
+        <span class="outcome-label">Assumptions</span>
+        <ul class="assumption-list">
+          {% for a in o["assumptions"].splitlines()[:3] %}
+          <li>{{ a }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+
+      {% if o["risks"] %}
+      <div class="outcome-risks">
+        <span class="outcome-label">Risks</span>
+        <ul class="risk-list">
+          {% for r in o["risks"].splitlines()[:3] %}
+          <li>{{ r }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
     </div>
     {% endfor %}
   </div>
@@ -25,9 +69,9 @@
   <div id="detail" class="detail-panel"></div>
 
   <div class="actions-row">
-    <a href="/results/{{ job.id }}/tree" class="btn btn-secondary">Timeline Tree</a>
-    <a href="/results/{{ job.id }}/trajectories" class="btn btn-secondary">Factor Trajectories</a>
-    <a href="/jobs/{{ job.id }}" class="btn btn-primary">Back to Job</a>
+    <a href="/results/{{ job["id"] }}/tree" class="btn btn-secondary">Timeline Tree</a>
+    <a href="/results/{{ job["id"] }}/trajectories" class="btn btn-secondary">Factor Trajectories</a>
+    <a href="/jobs/{{ job["id"] }}" class="btn btn-primary">Back to Job</a>
   </div>
 </div>
 {% endblock %}
