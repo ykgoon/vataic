@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Personal &mdash; Vataic{% endblock %}
+{% block content %}
+<div class="personal-card">
+  <h1>Personal Scenarios</h1>
+  <p class="muted">Personal projections with privacy controls.</p>
+  {% if personal_jobs %}
+  <div class="job-list">
+    {% for j in personal_jobs %}
+    <a href="/personal/{{ j.id }}" class="job-row">
+      <span class="job-id">{{ j.id[:8] }}</span>
+      <span class="job-premise">{{ j.premise[:60] }}</span>
+      <span class="status-badge status-{{ j.status|lower }}">{{ j.status }}</span>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="muted">No personal jobs yet. Create one from the Jobs page.</p>
+  {% endif %}
+</div>
+{% endblock %}

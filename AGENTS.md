@@ -1,6 +1,6 @@
 # AGENTS.md — vataic
 
-Flask + htmx scenario lab. SQLite (WAL) is system of record, `data/artifacts/` holds blobs. Temporal `ProjectionJobWorkflow` (`worker/workflows.py`) orchestrates `app/steps/` pipeline with per-step DB checkpoints.
+Flask + htmx scenario lab. SQLite (WAL) is system of record, `data/artifacts/` holds blobs. In-process `ProjectionJobWorkflow` (`worker/workflows.py`) orchestrates `app/steps/` pipeline with per-step DB checkpoints.
 
 ## Commands (use `uv run`, never bare `python`)
 

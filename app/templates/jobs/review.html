@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Review {{ job.id[:8] }} &mdash; Vataic{% endblock %}
+{% block content %}
+<div class="review-card">
+  <h1>Review Assumptions &mdash; Job {{ job.id }}</h1>
+  <p class="review-hint">Review and edit the parsed scenario, factors, and assumptions before the projection loop starts. Changes are persisted before the loop begins.</p>
+  <div class="review-section">
+    <h2>Scenario Inputs</h2>
+    <pre class="data-pre">{{ scenario.assumptions if scenario else 'No assumptions yet' }}</pre>
+  </div>
+  <div class="review-section">
+    <h2>Selected Factors</h2>
+    <pre class="data-pre">{{ factors.factors[:2000] if factors else 'No factors yet' }}</pre>
+  </div>
+  <div class="review-section">
+    <h2>Weak-Signal Watchlist</h2>
+    <pre class="data-pre">{{ factors.watchlist[:1000] if factors else 'No watchlist yet' }}</pre>
+  </div>
+  <div class="review-section">
+    <h2>Causal Graph Summary</h2>
+    <pre class="data-pre">{{ graph.edges[:1000] if graph else 'No causal graph yet' }}</pre>
+  </div>
+  <div class="review-section">
+    <h2>Edit Factors</h2>
+    <form method="post" action="/jobs/{{ job.id }}/review">
+      <textarea name="factors" rows="8" cols="70">{{ factors.factors if factors else '[]' }}</textarea>
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Save &mdash; Proceed to Loop</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

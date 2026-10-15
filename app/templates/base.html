@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Vataic{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+</head>
+<body>
+  <div class="app">
+    <header class="site-header">
+      <a href="/" class="brand">Vataic</a>
+      <nav class="site-nav">
+        <a href="/" class="nav-link {% if not request.path == '/' %}active{% endif %}">Home</a>
+        <a href="/jobs" class="nav-link {% if request.path.startswith('/jobs') %}active{% endif %}">Jobs</a>
+        <a href="/personal" class="nav-link {% if request.path.startswith('/personal') %}active{% endif %}">Personal</a>
+        <a href="/settings" class="nav-link {% if request.path.startswith('/settings') %}active{% endif %}">Settings</a>
+      </nav>
+    </header>
+    <main class="site-main">
+      {% block content %}{% endblock %}
+    </main>
+    <footer class="site-footer">
+      <p>Vataic &mdash; Structured scenario projection engine</p>
+    </footer>
+  </div>
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+  <script>
+    // Simple status flash
+    document.addEventListener('DOMContentLoaded', function() {
+      const flash = document.getElementById('status-flash');
+      if (flash) {
+        setTimeout(function() { flash.classList.remove('show'); }, 3000);
+      }
+    });
+  </script>
+</body>
+</html>

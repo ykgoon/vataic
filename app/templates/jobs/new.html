@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}New Scenario &mdash; Vataic{% endblock %}
+{% block content %}
+<div class="form-card">
+  <h1>New Scenario</h1>
+  <p class="form-hint">Describe a premise or scenario you want to project. The projection runs asynchronously and may take hours &mdash; you can close the browser after submitting.</p>
+  <form method="post" action="/jobs/new">
+    <div class="form-group">
+      <label for="premise">Premise <span class="req">*</span></label>
+      <textarea id="premise" name="premise" rows="6" cols="70" required placeholder="What if interest rates drop 300bps while inflation remains sticky? What if a major supply chain disruption hits Q3?"></textarea>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="scope">Scope</label>
+        <select id="scope" name="scope">
+          <option value="macro">Macro</option>
+          <option value="meso">Meso</option>
+          <option value="personal">Personal</option>
+          <option value="hybrid">Hybrid</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="reality_mode">Reality Mode</label>
+        <select id="reality_mode" name="reality_mode">
+          <option value="grounded">Grounded</option>
+          <option value="speculative">Speculative</option>
+          <option value="fantastical">Fantastical</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="horizon">Horizon</label>
+        <input type="text" id="horizon" name="horizon" value="auto" placeholder="e.g. auto, 1y, 5y, 10y">
+      </div>
+      <div class="form-group">
+        <label for="outcome_count">Outcome Count</label>
+        <input type="number" id="outcome_count" name="outcome_count" value="7" min="1" max="20">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="budget_limit">Budget Limit (tokens)</label>
+        <input type="number" id="budget_limit" name="budget_limit" value="500000" min="10000" max="5000000">
+      </div>
+      <div class="form-group">
+        <label for="detail_level">Detail Level</label>
+        <select id="detail_level" name="detail_level">
+          <option value="brief">Brief</option>
+          <option value="standard" selected>Standard</option>
+          <option value="deep">Deep</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">Submit Scenario</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

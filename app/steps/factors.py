@@ -59,14 +59,54 @@ def has_cycle(edges: list[dict]) -> bool:
         return False
     return any(dfs(n, set()) for n in g)
 
+def _default_edges(factor_ids: list) -> list[dict]:
+    """Deterministic causal edges forming a small acyclic graph.
+
+    No LLM. Builds a chain plus a few cross-edges so the graph is connected
+    but acyclic (a chain is acyclic; cross-edges only go forward in index
+    order, which preserves acyclicity). Strengths and delays are deterministic
+    from the factor ids.
+    """
+    import hashlib
+    ids = [f for f in factor_ids if f]
+    n = len(ids)
+    if n < 2:
+        return []
+    edges = []
+    def strength(i, j):
+        h = int.from_bytes(hashlib.sha256(f"{i}|{j}".encode()).digest()[:4], "big")
+        # signed, magnitude 0.2..0.8
+        sign = 1.0 if h % 2 else -1.0
+        return round(sign * (0.2 + 0.6 * (h % 100) / 100.0), 2)
+    def delay(i, j):
+        h = int.from_bytes(hashlib.sha256(f"d{i}|{j}".encode()).digest()[:4], "big")
+        return 1 + (h % 30)
+    # chain: i -> i+1
+    for i in range(n - 1):
+        edges.append({"source": ids[i], "target": ids[i + 1],
+                      "strength": strength(ids[i], ids[i + 1]),
+                      "delay_days": delay(ids[i], ids[i + 1]), "polarity": "+"})
+    # a few forward cross-edges (i -> j, j > i+1) for connectivity
+    for i in range(n - 2):
+        j = i + 2
+        if j < n:
+            edges.append({"source": ids[i], "target": ids[j],
+                          "strength": strength(ids[i], ids[j]),
+                          "delay_days": delay(ids[i], ids[j]), "polarity": "+"})
+    return edges
+
+
 def build_causal_graph(job_id: str, factors: list[dict], proposed: list[dict] | None = None,
                        db_path=None) -> dict:
     ids = {f["id"] for f in factors}
     edges, failures = [], []
-    for e in (proposed or []):
+    proposed = proposed or _default_edges([f["id"] for f in factors])
+    for e in proposed:
         err = validate_edge(e, ids)
-        if err: failures.append({"edge": e, "error": err})
-        else: edges.append(e)
+        if err:
+            failures.append({"edge": e, "error": err})
+        else:
+            edges.append(e)
     # critic: flag self-contradictory cycles (same pair opposite polarity, no condition change)
     flagged = has_cycle(edges)
     with get_conn(db_path) as c:

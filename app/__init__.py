@@ -1,6 +1,6 @@
-"""Flask application factory with hello-world route; blueprints registered below."""
+"""Flask application factory with proper template rendering."""
 import os
-from flask import Flask, render_template_string
+from flask import Flask, render_template
 
 
 def create_app(config_override: dict | None = None) -> Flask:
@@ -18,9 +18,7 @@ def create_app(config_override: dict | None = None) -> Flask:
 
     @app.get("/")
     def index():
-        return render_template_string(
-            "<h1>Vataic</h1><p>World projector is running. "
-            "<a href='/jobs'>jobs</a> · <a href='/settings'>settings</a></p>")
+        return render_template("jobs/dashboard.html", jobs=[])
 
     @app.get("/healthz")
     def healthz():

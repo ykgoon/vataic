@@ -1,25 +1,17 @@
 services:
-  temporal:
-    image: temporalio/admin-tools:1.22
-    command: temporal server start-dev --db-filename /data/temporal.db --ip 0.0.0.0
-    ports: ["7233:7233", "8233:8233"]
-    volumes: ["./data:/data"]
   web:
     build: { context: ., dockerfile: Dockerfile.web }
     env_file: [.env]
     environment:
       DATABASE_PATH: /data/vataic.db
       ARTIFACT_DIR: /data/artifacts
-      TEMPORAL_ADDRESS: temporal:7233
     ports: ["5000:5000"]
     volumes: ["./data:/data"]
-    depends_on: [temporal]
   worker:
     build: { context: ., dockerfile: Dockerfile.worker }
     env_file: [.env]
     environment:
       DATABASE_PATH: /data/vataic.db
       ARTIFACT_DIR: /data/artifacts
-      TEMPORAL_ADDRESS: temporal:7233
     volumes: ["./data:/data"]
-    depends_on: [temporal, web]
+    depends_on: [web]

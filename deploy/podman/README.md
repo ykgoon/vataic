@@ -4,4 +4,4 @@
 3. Install units: `cp deploy/podman/* ~/.config/containers/systemd/ && systemctl --user daemon-reload`.
 4. Start: `systemctl --user start vataic-web vataic-worker`.
 5. Verify: `curl localhost:5000/healthz` → `{"ok": true}`; submit scenario at `/jobs/new`.
-For Temporal backed by Postgres on target, set `TEMPORAL_ADDRESS` to that server; app DB stays SQLite on the volume.
+App DB stays SQLite on the volume; the worker polls it in-process (no Temporal).

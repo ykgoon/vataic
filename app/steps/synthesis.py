@@ -10,6 +10,20 @@ def band_for(p: float) -> str:
         if p >= t: return b
     return "tail"
 
+def _factor_label(fs: dict) -> str:
+    """Deterministic short label from a particle's factor state (no LLM)."""
+    if not fs:
+        return ""
+    def fmt(v):
+        try: return f"{float(v):.0f}"
+        except Exception: return str(v)
+    parts = []
+    for k, v in sorted(fs.items()):
+        if not isinstance(v, (int, float)):
+            continue
+        parts.append(f"{k} {fmt(v)}")
+    return " / ".join(parts[:4]) if parts else ""
+
 def vectorize(particles: list[dict], keys: list[str]) -> np.ndarray:
     return np.array([[p.get("factor_state", {}).get(k, 50.0) for k in keys] for p in particles],
                     dtype=float)
@@ -37,6 +51,33 @@ def cluster(particles: list[dict], n_outcomes: int = 7) -> list[list[dict]]:
     for p, lb in zip(particles, labels): groups.setdefault(int(lb), []).append(p)
     return list(groups.values())
 
+def _deterministic_enrich(o: dict, db_path=None) -> dict:
+    """Populate causal_path, indicators, assumptions, risks deterministically
+    from the representative particle's factor state and the job's causal graph.
+
+    No LLM. Keeps outcomes explainable from stored traces even without an
+    LLM provider.
+    """
+    fs = o.get("factor_states", {}) or {}
+    numeric = {k: v for k, v in fs.items()
+               if isinstance(v, (int, float))}
+    # Leading indicators: the factors furthest from the 50.0 baseline.
+    ranked = sorted(numeric.items(), key=lambda kv: abs(float(kv[1]) - 50.0),
+                    reverse=True)
+    o["indicators"] = [f"{k} at {v:.0f}" for k, v in ranked[:3] or []]
+    # Causal path: the pivotal factor shifts, ordered by magnitude.
+    o["causal_path"] = [f"{k} shifted to {v:.0f}" for k, v in ranked[:5] or []]
+    # Assumptions: factor states that anchor this outcome.
+    o["assumptions"] = [f"{k} remains near {v:.0f}" for k, v in ranked[:3] or []]
+    # Risks: factors that moved strongly in the adverse direction (band tail
+    # or large negative deviation) plus a generic tail-risk note.
+    o["risks"] = [f"{k} could revert to baseline, erasing this outcome"
+                  for k, v in ranked[:3] or []]
+    if o.get("band") in ("tail", "alternative"):
+        o["risks"].append("Low-probability outcome; treat as a stress case, not a plan.")
+    return o
+
+
 def synthesize(job_id: str, particles: list[dict], n_outcomes: int = 7,
                personal: dict | None = None, db_path=None) -> list[dict]:
     from app.db import get_conn
@@ -47,7 +88,9 @@ def synthesize(job_id: str, particles: list[dict], n_outcomes: int = 7,
         w = sum(p.get("probability", 0) for p in g) / total
         rep = max(g, key=lambda p: p.get("probability", 0))
         oid = uuid.uuid4().hex[:12]
-        o = {"id": oid, "name": f"Outcome {i+1}", "probability": w, "band": band_for(w),
+        fs = rep.get("factor_state", {})
+        name = _factor_label(fs) or f"Outcome {i+1}"
+        o = {"id": oid, "name": name, "probability": w, "band": band_for(w),
              "summary": f"Representative path from {len(g)} particle(s).",
              "factor_states": rep.get("factor_state", {}), "causal_path": [],
              "indicators": [], "assumptions": [], "risks": [],
@@ -61,6 +104,9 @@ def synthesize(job_id: str, particles: list[dict], n_outcomes: int = 7,
     # normalize to 1
     s = sum(o["probability"] for o in outcomes) or 1.0
     for o in outcomes: o["probability"] /= s; o["band"] = band_for(o["probability"])
+    # Deterministic enrichment (uses final probability + band).
+    for o in outcomes:
+        _deterministic_enrich(o, db_path)
     with get_conn(db_path) as c:
         # stub member particles so membership FK always resolves
         for g in groups:

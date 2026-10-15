@@ -157,8 +157,10 @@ def test_dashboard_and_results_routes():
     app = create_app({"TESTING": True})
     cl = app.test_client()
     assert cl.get("/healthz").json == {"ok": True}
-    r = cl.post("/jobs/new", data={"premise": "Test", "scope": "macro"})
-    assert b"Job accepted" in r.data
+    # POST /jobs/new creates the job and redirects to its detail page.
+    r = cl.post("/jobs/new", data={"premise": "Test", "scope": "macro"},
+                follow_redirects=True)
+    assert r.status_code == 200
     assert cl.get("/jobs").status_code == 200
     assert cl.get("/jobs/partial").status_code == 200
     assert cl.get("/settings").status_code == 200
@@ -173,12 +175,33 @@ def test_artifact_store_and_budget_persist():
     store_budget(jid, b, DB)
     assert load_budget(jid, DB)["llm_calls"] == 3
 
-def test_temporal_activities_idempotent_and_resume():
+def test_activities_idempotent_and_resume():
+    """Full run completes, and re-entry is safe (idempotent, no crash)."""
     from worker.workflows import ProjectionJobWorkflow, act_loop_step
-    from app.jobs.repositories import create_job, transition
+    from app.jobs.repositories import create_job, transition, save_checkpoint, latest_checkpoint
     jid = create_job("wf premise")
     out = ProjectionJobWorkflow.run_sync({"job_id": jid, "premise": "wf premise",
                                           "scope": "macro", "outcome_count": 3})
     assert "artifact" in out
+    # Re-entry after completion: must not crash and must return a valid dict.
     again = act_loop_step({"job_id": jid})
-    assert again["particles"]  # resume-safe re-entry
+    assert isinstance(again, dict) and "particles" in again
+
+    # Simulate a crash mid-projection: job is RUNNING with a checkpoint that has
+    # non-empty particles. A recovering worker re-enters via act_loop_step and
+    # must resume from that checkpoint (not step 0) and produce particles.
+    from app.jobs.repositories import create_job as _c
+    jid2 = _c("resume mid")
+    transition(jid2, "INITIALIZING", db_path=None)
+    transition(jid2, "RUNNING", db_path=None)
+    # Seed a factor set + particles so a mid-run checkpoint exists.
+    save_checkpoint(jid2, "projection_loop", 12,
+                    {"particles": [{"id": "p0", "factor_state": {"f": 55.0}, "probability": 0.7},
+                                   {"id": "p1", "factor_state": {"f": 40.0}, "probability": 0.3}]},
+                    {"steps": 12, "caps": {"steps": 40}}, db_path=None)
+    cp = latest_checkpoint(jid2, db_path=None)
+    assert cp["step_index"] == 12
+    resumed = act_loop_step({"job_id": jid2})
+    assert resumed["stop_reason"] is None or "max_steps" in (resumed.get("stop_reason") or "")
+    assert resumed["particles"]  # resumed from step 12, not step 0
+    assert latest_checkpoint(jid2, db_path=None)["step_index"] > 12

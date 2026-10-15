@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Jobs &mdash; Vataic{% endblock %}
+{% block content %}
+<div class="jobs-card">
+  <div class="jobs-header">
+    <h1>Jobs</h1>
+    <a href="/jobs/new" class="btn btn-primary">New Scenario</a>
+  </div>
+  <table class="jobs-table">
+    <thead>
+      <tr>
+        <th>Job</th>
+        <th>Premise</th>
+        <th>Status</th>
+        <th>Progress</th>
+        <th>Last Checkpoint</th>
+        <th>Error</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for j in jobs %}
+      <tr>
+        <td><a href="/jobs/{{ j.id }}">{{ j.id[:8] }}</a></td>
+        <td class="premise-cell">{{ j.premise[:80] }}{% if j.premise|length > 80 %}&hellip;{% endif %}</td>
+        <td><span class="status-badge status-{{ j.status|lower }}">{{ j.status }}</span></td>
+        <td>{{ j.current_step or '—' }}</td>
+        <td>{{ j.updated_at[:16] if j.updated_at else '—' }}</td>
+        <td class="error-cell">{{ j.error[:60] if j.error else '—' }}</td>
+        <td>
+          {% if j.status == 'FAILED' %}
+          <button hx-post="/jobs/{{ j.id }}/retry" hx-target="#status-{{ j.id }}" hx-swap="innerHTML" class="btn btn-sm btn-secondary">Retry</button>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+      {% if jobs|length == 0 %}
+      <tr><td colspan="7" class="empty-row">No jobs yet. <a href="/jobs/new">Create one</a>.</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

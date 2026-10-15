@@ -17,7 +17,7 @@ The system SHALL model each projection as a job with a persisted state machine c
 - **THEN** the transition is persisted with a timestamp and the job's current state is CLUSTERING
 
 ### Requirement: Durable workflow execution
-The system SHALL execute projection jobs as temporal workflows whose activities are idempotent and retried safely. Each activity MUST write its result to persistent storage before the workflow advances. The workflow MUST support resuming from the last committed checkpoint after worker crash, machine shutdown, or redeployment.
+The system SHALL execute projection jobs via an in-process projection worker (`ProjectionJobWorkflow`) whose activities are idempotent and retried safely. Each activity MUST write its result to persistent storage before the workflow advances. The workflow MUST support resuming from the last committed checkpoint after worker crash, machine shutdown, or redeployment.
 
 #### Scenario: Activity retry is safe
 - **WHEN** a workflow activity fails transiently and is retried

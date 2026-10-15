@@ -6,7 +6,6 @@ requires-python = ">=3.11"
 dependencies = [
   "flask>=3.0",
   "gunicorn>=21.0",
-  "temporalio>=1.5",
   "requests>=2.31",
   "numpy>=1.26",
   "pydantic>=2.0",

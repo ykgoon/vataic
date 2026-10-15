@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Results &mdash; Job {{ job.id[:8] }}{% endblock %}
+{% block content %}
+<div class="results-card">
+  <h1>Outcomes &mdash; Job {{ job.id[:8] }}</h1>
+  <p class="muted">Structured scenario explorations, not predictions.</p>
+
+  {% if outcomes %}
+  <div class="outcome-grid">
+    {% for o in outcomes %}
+    <div class="outcome-card" hx-get="/results/{{ job.id }}/outcome/{{ o.id }}" hx-trigger="click" hx-target="#detail">
+      <div class="outcome-header">
+        <span class="outcome-name">{{ o.name }}</span>
+        <span class="outcome-prob">{{ '%.0f' | format(o.probability * 100) }}%</span>
+      </div>
+      <span class="band badge-{{ o.band|lower }}">{{ o.band }}</span>
+      <p class="outcome-summary">{{ o.summary[:200] }}</p>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="muted">No outcomes yet.</p>
+  {% endif %}
+
+  <div id="detail" class="detail-panel"></div>
+
+  <div class="actions-row">
+    <a href="/results/{{ job.id }}/tree" class="btn btn-secondary">Timeline Tree</a>
+    <a href="/results/{{ job.id }}/trajectories" class="btn btn-secondary">Factor Trajectories</a>
+    <a href="/jobs/{{ job.id }}" class="btn btn-primary">Back to Job</a>
+  </div>
+</div>
+{% endblock %}

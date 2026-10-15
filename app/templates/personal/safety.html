@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Safety Pause &mdash; Vataic{% endblock %}
+{% block content %}
+<div class="safety-card">
+  <h1>Safety Pause</h1>
+  <p>{{ flag.reason }}</p>
+  <p class="muted">{{ flag.resources }}</p>
+  <p>No projection generated. Please seek professional/emergency support.</p>
+  <a href="/" class="btn btn-primary">Back to Dashboard</a>
+</div>
+{% endblock %}
