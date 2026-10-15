@@ -12,7 +12,7 @@ uv run pytest                  # full suite, sqlite-backed, no services needed
 uv run pytest tests/test_vataic.py -k <name>  # single test
 uv run flask --app app run     # dev server; prod: gunicorn 'app:create_app()'
 uv run python scripts/smoke_test.py  # end-to-end checkpoint/resume check
-docker compose up              # web + worker + Temporal dev server (sqlite mode)
+docker compose up              # web + in-process worker (sqlite mode)
 ```
 
 No lint/typecheck/CI config in repo. `pyproject.toml` only defines pytest (`testpaths=["tests"]`).
@@ -27,7 +27,7 @@ No lint/typecheck/CI config in repo. `pyproject.toml` only defines pytest (`test
 
 - Entry: `app/__init__.py:create_app()` lazily registers `app.routes.{jobs,results,personal,settings}` blueprints (try/except, missing blueprint = silently skipped). `/healthz` returns `{"ok": True}`.
 - Pipeline order: `parse_scenario` → `select_factors` → `build_causal_graph` (+`critic_revise`) → `init_world_state` → `projection_loop` (`act_loop_step`, one step per activity, continue-as-new pattern) → `cluster_outcomes` (`synthesize`) → `generate_explanations` → `finalize_report` (`write_artifact`). See `worker/workflows.py:PHASES`.
-- Durability rules: Temporal activities are idempotent via `idempotency_records` (`idem_key`/`idem_get`/`idem_put`, `INSERT OR IGNORE`) and `llm_calls.cache_key` UNIQUE. DB write happens before activity completion. Resume reads `latest_checkpoint()`, never restarts at step 0. Recovery: `scan_recoverable()` finds `RUNNING/RECOVERING/CHECKPOINTING` jobs with expired `lease_expires_at` and moves them to `RECOVERING`.
+- Durability rules: in-process activities are idempotent via `idempotency_records` (`idem_key`/`idem_get`/`idem_put`, `INSERT OR IGNORE`) and `llm_calls.cache_key` UNIQUE. DB write happens before activity completion. Resume reads `latest_checkpoint()`, never restarts at step 0. Recovery: `scan_recoverable()` finds `RUNNING/RECOVERING/CHECKPOINTING` jobs with expired `lease_expires_at` and moves them to `RECOVERING`. The worker (`worker/main.py`) is a plain polling loop: every `POLL_INTERVAL` it scans for recoverable jobs, acquires their leases, and runs `ProjectionJobWorkflow.run_sync()` with a lease-renewal heartbeat thread.
 - State machine `app/jobs/states.py:ALLOWED` strictly enforced (`transition()` raises `InvalidTransition`); e.g. `QUEUED→COMPLETED` illegal, `FAILED→QUEUED` is the retry path.
 - Storage: large payloads go to disk via `app/store.py:write_artifact()` (`<ARTIFACT_DIR>/<job_id>/<id>.<kind>.json`); DB `artifacts` table holds path only. Checkpoints store JSON `payload`+`budget` with `immutable=1`.
 - Migrations: `migrations/*.sql` applied in sorted order via `app/migrate.py:apply_pending()`, tracked in `schema_migrations`. Schema is single file `001_initial_schema.sql`; `app/seed.py:seed()` fills `settings` table, both idempotent.
