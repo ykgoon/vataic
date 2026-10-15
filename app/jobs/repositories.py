@@ -144,3 +144,11 @@ def scan_recoverable(db_path=None) -> list[str]:
         try: transition(jid, "RECOVERING", "expired lease -> recovering", db_path)
         except Exception: pass
     return out
+
+def scan_queued(db_path=None) -> list[str]:
+    """Return ids of jobs waiting to start (status QUEUED). These have not
+    yet been picked up by any worker. Distinct from scan_recoverable(), which
+    only handles jobs whose lease has expired."""
+    with get_conn(db_path) as c:
+        return [r["id"] for r in c.execute(
+            "SELECT id FROM projection_jobs WHERE status='QUEUED'")]

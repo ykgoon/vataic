@@ -2,7 +2,8 @@
 
 The worker runs a simple polling loop:
   1. On startup and every POLL_INTERVAL seconds, call scan_recoverable()
-     to find jobs with expired leases (RUNNING / RECOVERING / CHECKPOINTING).
+     to find jobs with expired leases (RUNNING / RECOVERING / CHECKPOINTING)
+     and scan_queued() to find jobs waiting to start (QUEUED).
   2. For each job found, acquire a fresh lease and run the full pipeline
      via ProjectionJobWorkflow.run_sync(inp).
   3. A lease-renewal heartbeat thread keeps the lease alive while a long
@@ -21,6 +22,7 @@ from app.jobs.repositories import (
     acquire_lease,
     get_job,
     renew_lease,
+    scan_queued,
     scan_recoverable,
 )
 from worker.workflows import ProjectionJobWorkflow
@@ -112,18 +114,24 @@ def _run_job(job_id: str, owner: str) -> None:
 
 
 def _scan_and_run(owner: str) -> None:
-    """Scan for recoverable jobs and run each one."""
+    """Scan for recoverable and queued jobs and run each one."""
+    recoverable = []
     try:
         recoverable = scan_recoverable()
     except Exception as e:
         logger.error("scan_recoverable failed: %s", e)
+    queued = []
+    try:
+        queued = scan_queued()
+    except Exception as e:
+        logger.error("scan_queued failed: %s", e)
+
+    jobs = list(recoverable) + [q for q in queued if q not in recoverable]
+    if not jobs:
         return
 
-    if not recoverable:
-        return
-
-    logger.info("scan found %d recoverable job(s): %s", len(recoverable), recoverable)
-    for job_id in recoverable:
+    logger.info("scan found %d job(s) to run: %s", len(jobs), jobs)
+    for job_id in jobs:
         j = get_job(job_id)
         if not j:
             continue

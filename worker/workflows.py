@@ -5,6 +5,7 @@ leases (in app/jobs/repositories.py) provide all durable-execution
 semantics. run_sync() runs the full pipeline as a plain Python loop.
 """
 import json
+import logging
 
 # ---- activities (plain functions, idempotent) ----
 def _put(key: str, res: dict) -> dict:
@@ -208,18 +209,54 @@ class ProjectionJobWorkflow:
 
     @staticmethod
     def run_sync(inp: dict) -> dict:
+        """Run the full projection pipeline, driving the job state machine
+        end-to-end: QUEUED -> INITIALIZING -> RUNNING -> ... -> COMPLETED
+        (or FAILED on error).
+
+        The projection loop is the natural checkpoint boundary: each
+        act_loop_step reads the latest checkpoint and advances by 1, so a
+        crash mid-loop resumes from the last saved step, not step 0.
+        """
+        from app.jobs.repositories import transition
+        jid = inp["job_id"]
         ctx = dict(inp)
-        act_parse(ctx)
-        act_factors(ctx)
-        act_causal(ctx)
-        act_init_state(ctx)
-        # Projection loop: checkpoint is the natural boundary.
-        # Each act_loop_step call reads the latest checkpoint and advances by 1,
-        # so a crash mid-loop resumes from the last saved step, not step 0.
-        while True:
-            out = act_loop_step(ctx)
-            if out.get("stop_reason"):
-                break
-        act_cluster(ctx)
-        act_explain(ctx)
-        return act_finalize(ctx)
+
+        def _to(to_state: str, message: str) -> None:
+            try:
+                transition(jid, to_state, message)
+            except Exception as e:
+                # Non-fatal: a transition can be skipped if the job is
+                # already in a compatible state (e.g. recovery path).
+                logger = logging.getLogger(__name__)
+                logger.warning("state transition %s -> %s failed: %s",
+                               jid, to_state, e)
+
+        try:
+            _to("INITIALIZING", "worker picked up job")
+            _to("RUNNING", "starting projection")
+
+            # Pre-loop activities (parse, factors, causal, world state).
+            act_parse(ctx)
+            act_factors(ctx)
+            act_causal(ctx)
+            act_init_state(ctx)
+
+            # Projection loop: checkpoint is the natural boundary.
+            while True:
+                out = act_loop_step(ctx)
+                if out.get("stop_reason"):
+                    break
+
+            # Post-loop: cluster, explain, finalize.
+            _to("CLUSTERING", "loop complete, clustering outcomes")
+            act_cluster(ctx)
+            _to("EXPLAINING", "explaining outcomes")
+            act_explain(ctx)
+            return act_finalize(ctx)
+
+        except Exception as e:
+            try:
+                transition(jid, "FAILED", f"pipeline error: {e}")
+            except Exception:
+                pass
+            raise
