@@ -44,7 +44,7 @@ VALIDATORS = {"parse": ParseOut, "factors": FactorOut, "causal": CausalOut,
 
 # ---------- client (5.1) ----------
 class LLMClient:
-    def __init__(self, base_url="", api_key="", model="", timeout_s=120, max_attempts=4,
+    def __init__(self, base_url="", api_key="", model="", timeout_s=300, max_attempts=4,
                  backoff_base_s=1.5, db_path=None):
         from app.config import settings
         self.base_url = (base_url or settings.llm_base_url).rstrip("/")

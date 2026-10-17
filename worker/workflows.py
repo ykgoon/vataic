@@ -21,7 +21,7 @@ def act_parse(inp: dict) -> dict:
     hit = idem_get(key)
     return hit if hit else _put(key, parse_scenario(
         inp["job_id"], inp.get("premise", ""), inp.get("scope", "macro"),
-        inp.get("reality_mode", "grounded"), inp.get("horizon", "auto")))
+        inp.get("reality_mode", "grounded"), inp.get("horizon", "auto"), use_llm=True))
 
 
 def act_factors(inp: dict) -> dict:
@@ -183,7 +183,7 @@ def act_explain(inp: dict) -> dict:
         for r in rows:
             o = {"name": r["name"], "probability": r["probability"], "band": r["band"],
                  "summary": r["summary"]}
-            e = explain(o, use_llm=False, job_id=jid)
+            e = explain(o, use_llm=True, job_id=jid)
             c.execute("UPDATE outcomes SET explanation=? WHERE id=?", (e["explanation"], r["id"]))
     return {"explained": len(rows)}
 
