@@ -7,19 +7,21 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
 </head>
 <body>
-  <div class="app-shell">
-    <header class="app-header">
+  <header class="site-header">
+    <div class="container header-inner">
       <div class="brand">
         <a href="/" class="brand-logo">Vataic</a>
       </div>
-      <nav class="app-nav">
+      <nav class="main-nav">
         <a href="/" class="nav-link">Jobs</a>
         <a href="/jobs/new" class="nav-link">New Job</a>
         <a href="/personal" class="nav-link">Personal</a>
         <a href="/settings" class="nav-link">Settings</a>
       </nav>
-    </header>
-    <main class="app-main">
+    </div>
+  </header>
+  <main class="site-main">
+    <div class="container">
       {% if messages %}
         <div class="status-flash">
           {% for m in messages %}
@@ -28,11 +30,13 @@
         </div>
       {% endif %}
       {% block content %}{% endblock %}
-    </main>
-    <footer class="app-footer">
-      <span class="footer-brand">Vataic &mdash; Structured scenario projection engine</span>
-    </footer>
-  </div>
+    </div>
+  </main>
+  <footer class="site-footer">
+    <div class="container">
+      <span class="muted">Vataic &mdash; Structured scenario projection engine</span>
+    </div>
+  </footer>
   <script src="{{ url_for('static', filename='htmx.min.js') }}"></script>
   <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
