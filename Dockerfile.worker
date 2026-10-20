@@ -1,7 +1,8 @@
-FROM python:3.11-slim
+FROM ghcr.io/astral-sh/uv:0.9.30-python3.11-bookworm-slim
 WORKDIR /srv
-COPY pyproject.toml ./
-RUN pip install --no-cache-dir -e .
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
+ENV PATH="/srv/.venv/bin:$PATH"
 COPY app ./app
 COPY worker ./worker
 COPY migrations ./migrations

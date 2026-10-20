@@ -8,7 +8,7 @@ uv sync
 uv run python -m app.migrate
 uv run pytest
 uv run flask --app app run  # or gunicorn 'app:create_app()'
-docker compose up  # web + worker (in-process projection worker, no Temporal)
+ docker compose up  # web + worker (uv-based image build, deps from uv.lock)
 uv run python scripts/smoke_test.py
 ```
 
