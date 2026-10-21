@@ -15,6 +15,9 @@ def _put(key: str, res: dict) -> dict:
 
 
 def act_parse(inp: dict) -> dict:
+    from app.db import get_conn
+    with get_conn() as c:
+        c.execute("UPDATE projection_jobs SET current_phase='parse' WHERE id=?", (inp["job_id"],))
     from app.steps.intake import parse_scenario
     from app.jobs.repositories import idem_key, idem_get
     key = idem_key(inp["job_id"], "parse_scenario", 0, "", inp.get("premise", "")[:32])
@@ -25,6 +28,9 @@ def act_parse(inp: dict) -> dict:
 
 
 def act_factors(inp: dict) -> dict:
+    from app.db import get_conn
+    with get_conn() as c:
+        c.execute("UPDATE projection_jobs SET current_phase='factors' WHERE id=?", (inp["job_id"],))
     from app.steps.factors import default_candidates, select_factors
     from app.jobs.repositories import idem_key, idem_get
     key = idem_key(inp["job_id"], "select_factors", 0, "", inp.get("scope", "macro"))
@@ -39,6 +45,8 @@ def act_causal(inp: dict) -> dict:
     from app.steps.factors import build_causal_graph, critic_revise
     from app.jobs.repositories import idem_key, idem_get
     from app.db import get_conn
+    with get_conn() as c:
+        c.execute("UPDATE projection_jobs SET current_phase='causal' WHERE id=?", (inp["job_id"],))
     key = idem_key(inp["job_id"], "build_causal_graph")
     hit = idem_get(key)
     if hit:
@@ -137,6 +145,7 @@ def act_loop_step(inp: dict) -> dict:
     """Single loop iteration (continue-as-new unit). Loads checkpoint, runs one step."""
     from app.steps.engine import run_step, stopping_reason
     from app.jobs.repositories import latest_checkpoint, load_budget, store_budget
+    from app.db import get_conn
     jid = inp["job_id"]
     cp = latest_checkpoint(jid)
     step_index = (cp["step_index"] + 1) if cp and cp["phase"] == "projection_loop" else 1
@@ -151,7 +160,16 @@ def act_loop_step(inp: dict) -> dict:
         return _deterministic_developments(p, fids, step_index, step_index)
     out = run_step(jid, step_index, particles, developments_fn=developments_fn,
                    budget=budget)
+    with get_conn() as c:
+        n_branches = c.execute(
+            "SELECT COUNT(*) FROM particles WHERE job_id=? AND parent_id IS NOT NULL",
+            (jid,)).fetchone()[0]
+    out["budget"]["branches"] = int(n_branches)
     store_budget(jid, out["budget"])
+    # Reflect live loop position on the job row (dashboard/detail progress).
+    with get_conn() as c:
+        c.execute("UPDATE projection_jobs SET current_phase='projection_loop', current_step=? WHERE id=?",
+                  (step_index, jid))
     reason = stopping_reason(step_index, out["budget"],
                              horizon_reached=step_index >= budget.get("caps", {}).get("steps", 40))
     out["stop_reason"] = reason
@@ -163,28 +181,44 @@ def act_cluster(inp: dict) -> dict:
     from app.jobs.repositories import get_job
     from app.db import get_conn
     jid = inp["job_id"]
+    job = get_job(jid) or {}
     with get_conn() as c:
         parts = [dict(r) for r in c.execute(
             "SELECT id, probability, factor_state FROM particles WHERE job_id=?", (jid,))]
         for p in parts:
             p["factor_state"] = json.loads(p["factor_state"])
-    scope = (get_job(jid) or {}).get("scope", "macro")
+    scope = job.get("scope", "macro")
     outs = synthesize(jid, parts, inp.get("outcome_count", 7),
-                      personal={} if scope == "personal" else None)
+                      personal={} if scope == "personal" else None,
+                      premise=job.get("premise", ""))
     return {"outcomes": [o["id"] for o in outs]}
 
 
 def act_explain(inp: dict) -> dict:
     from app.steps.synthesis import explain
+    from app.jobs.repositories import get_job
     from app.db import get_conn
     jid = inp["job_id"]
+    premise = (get_job(jid) or {}).get("premise", "")
     with get_conn() as c:
         rows = [dict(r) for r in c.execute("SELECT * FROM outcomes WHERE job_id=?", (jid,))]
         for r in rows:
+            # Pass the full outcome context so the LLM (or narrative fallback)
+            # can reason about factor states, not just the name.
+            def _j(v):
+                try: return json.loads(v) if v else []
+                except Exception: return []
             o = {"name": r["name"], "probability": r["probability"], "band": r["band"],
-                 "summary": r["summary"]}
-            e = explain(o, use_llm=True, job_id=jid)
-            c.execute("UPDATE outcomes SET explanation=? WHERE id=?", (e["explanation"], r["id"]))
+                 "summary": r["summary"],
+                 "factor_states": _j(r.get("factor_states")),
+                 "indicators": _j(r.get("indicators")),
+                 "assumptions": _j(r.get("assumptions")),
+                 "risks": _j(r.get("risks")),
+                 "causal_path": _j(r.get("causal_path"))}
+            e = explain(o, use_llm=True, job_id=jid, premise=premise)
+            c.execute("UPDATE outcomes SET explanation=?, indicators=?, assumptions=?, risks=? WHERE id=?",
+                      (e.get("explanation", ""), json.dumps(e.get("indicators", [])),
+                       json.dumps(e.get("assumptions", [])), json.dumps(e.get("risks", [])), r["id"]))
     return {"explained": len(rows)}
 
 
@@ -252,6 +286,8 @@ class ProjectionJobWorkflow:
             act_cluster(ctx)
             _to("EXPLAINING", "explaining outcomes")
             act_explain(ctx)
+            from app.llm.usage import reconcile_budget
+            reconcile_budget(jid)
             return act_finalize(ctx)
 
         except Exception as e:

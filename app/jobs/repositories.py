@@ -109,9 +109,10 @@ def idem_put(key: str, result: dict, db_path=None) -> None:
 # ---- budget (3.6) ----
 def default_budget() -> dict:
     from app.config import settings
-    return {"llm_calls": 0, "tokens": 0, "steps": 0,
+    return {"llm_calls": 0, "tokens": 0, "steps": 0, "branches": 0,
             "caps": {"steps": settings.budget_max_steps, "llm_calls": settings.budget_max_llm_calls,
-                     "tokens": settings.budget_max_tokens, "runtime_s": settings.budget_max_runtime_s},
+                     "tokens": settings.budget_max_tokens, "runtime_s": settings.budget_max_runtime_s,
+                     "branches": settings.budget_max_branches},
             "started_at": now_iso()}
 
 def check_budget(b: dict) -> tuple[bool, str]:
@@ -119,6 +120,7 @@ def check_budget(b: dict) -> tuple[bool, str]:
     if b.get("steps", 0) >= c.get("steps", 40): return False, "max_steps"
     if b.get("llm_calls", 0) >= c.get("llm_calls", 500): return False, "max_llm_calls"
     if b.get("tokens", 0) >= c.get("tokens", 500000): return False, "max_tokens"
+    if b.get("branches", 0) >= c.get("branches", 20): return False, "max_branches"
     return True, ""
 
 def load_budget(jid: str, db_path=None) -> dict:

@@ -89,6 +89,12 @@ class LLMClient:
                 data = resp.json()
                 text = data["choices"][0]["message"]["content"]
                 parsed = json.loads(text)
+                usage = data.get("usage") or {}
+                try:
+                    from app.llm.usage import record_llm_usage
+                    record_llm_usage(job_id, phase, usage, mdl, db_path=self.db_path)
+                except Exception:
+                    pass  # usage accounting must never break the engine
                 V = VALIDATORS.get(phase)
                 if V:
                     try: parsed = V(**parsed).model_dump()

@@ -208,3 +208,80 @@ def test_activities_idempotent_and_resume():
     assert resumed["stop_reason"] is None or "max_steps" in (resumed.get("stop_reason") or "")
     assert resumed["particles"]  # resumed from step 12, not step 0
     assert latest_checkpoint(jid2, db_path=None)["step_index"] > 12
+
+def test_llm_usage_recorded_and_reconciled():
+    """Real provider calls must land in budget_state (no false zeros)."""
+    from app.llm.client import LLMClient
+    from app.jobs.repositories import create_job, load_budget
+    from app.db import get_conn
+
+    class FakeResp:
+        status_code = 200
+        def raise_for_status(self): pass
+        def json(self):
+            return {"choices": [{"message": {"content": json.dumps(
+                {"premise_type": "event", "axioms": [], "entities": [],
+                 "systems": [], "reality_mode": "grounded", "horizon": "auto"})}}],
+                "usage": {"prompt_tokens": 100, "completion_tokens": 50,
+                          "total_tokens": 150}}
+    jid = create_job("usage premise", db_path=DB)
+    c = LLMClient(base_url="http://127.0.0.1:1", db_path=DB)
+    import app.llm.client as cl_mod
+    orig = cl_mod.requests.post
+    cl_mod.requests.post = lambda *a, **k: FakeResp()
+    try:
+        out = c.chat(jid, "parse", [{"role": "user", "content": "hi"}])
+        assert not out["cache_hit"]
+    finally:
+        cl_mod.requests.post = orig
+    b = load_budget(jid, DB)
+    assert b["llm_calls"] == 1, f"expected 1 recorded call, got {b}"
+    assert b["tokens"] == 150 and b["prompt_tokens"] == 100
+    # Reconcile from llm_calls ledger agrees.
+    from app.llm.usage import reconcile_budget
+    b2 = reconcile_budget(jid, DB)
+    assert b2["llm_calls"] == 1 and b2["tokens"] == 150
+
+def test_outcomes_readable_names_and_summaries():
+    """Outcomes must read like a report: human names, no raw factor ids,
+    no float-noise probabilities, real narrative summary/explanation."""
+    from app.jobs.repositories import create_job
+    from app.steps.factors import select_factors
+    from app.steps.synthesis import synthesize
+    jid = create_job("YouTube channel chronicle premise", db_path=DB)
+    facs = [{"id": "f0", "name": "Skill Development", "current": 50.0},
+            {"id": "f1", "name": "Income Trajectory", "current": 50.0},
+            {"id": "f2", "name": "Reputation", "current": 50.0}]
+    select_factors(jid, facs, "personal", DB)
+    parts = [{"id": "p0", "factor_state": {"f0": 72.0, "f1": 41.0, "f2": 58.0},
+              "probability": 0.9},
+             {"id": "p1", "factor_state": {"f0": 51.0, "f1": 49.0, "f2": 50.0},
+              "probability": 0.1}]
+    outs = synthesize(jid, parts, 2, db_path=DB, premise="YouTube channel premise")
+    assert len(outs) >= 1
+    names_blob = " ".join(o["name"] for o in outs)
+    assert "Skill Development" in (outs[0]["summary"] + names_blob) or \
+           "Income Trajectory" in (outs[0]["summary"] + names_blob)
+    for o in outs:
+        assert not o["name"].startswith("f0 "), f"raw-id name: {o['name']}"
+        assert "Representative path from" not in o["summary"]
+        assert 0.999 <= sum(x["probability"] for x in outs) <= 1.001
+    # explanation narrative present without LLM
+    from app.steps.synthesis import explain
+    e = explain(dict(outs[0]), use_llm=False, job_id=jid, db_path=DB)
+    assert "most likely path" in e["explanation"] or "possible path" in e["explanation"] \
+        or "credible path" in e["explanation"] or "secondary path" in e["explanation"]
+    assert "f0" not in e["explanation"]
+
+def test_settings_page_shows_effective_values():
+    """Settings page must render effective env/seeded values, not 'Not configured'."""
+    from app import create_app
+    app = create_app({"TESTING": True})
+    cl = app.test_client()
+    r = cl.get("/settings")
+    assert r.status_code == 200
+    body = r.get_data(as_text=True)
+    assert "openai-compatible" in body          # provider value rendered
+    assert "500" in body                         # budget.max_llm_calls rendered
+    assert body.count("Not configured") <= 1     # at most the optional key row
+    assert "not reachable" in body or "reachable" in body  # status probe shown

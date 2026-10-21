@@ -3,34 +3,90 @@
 {% block content %}
 <div class="settings-card">
   <h1>Settings</h1>
+  <p class="muted">Effective runtime configuration — environment defaults with any database overrides applied.</p>
+
   <div class="settings-section">
     <h2>LLM Provider</h2>
-    <p class="muted">Configure the LLM provider used for scenario generation.</p>
+    <p class="muted">Used for scenario generation (OpenAI-compatible chat completions).</p>
     <div class="provider-status">
       <span class="provider-label">Provider:</span>
       <span class="provider-value">{{ provider_name or "Not configured" }}</span>
     </div>
     <div class="provider-status">
-      <span class="provider-label">Model:</span>
+      <span class="provider-label">Base URL:</span>
+      <span class="provider-value">{{ base_url or "Not configured" }}</span>
+    </div>
+    <div class="provider-status">
+      <span class="provider-label">Primary model:</span>
       <span class="provider-value">{{ model_name or "Not configured" }}</span>
     </div>
     <div class="provider-status">
+      <span class="provider-label">Strong model (parse/causal/explain):</span>
+      <span class="provider-value">{{ strong_model or "Not configured" }}</span>
+    </div>
+    <div class="provider-status">
+      <span class="provider-label">Cheap model (epoch/cluster):</span>
+      <span class="provider-value">{{ cheap_model or "Not configured" }}</span>
+    </div>
+    <div class="provider-status">
       <span class="provider-label">Status:</span>
-      <span class="provider-value">{{ provider_status or "n/a" }}</span>
+      <span class="provider-value">{{ provider_status }}</span>
     </div>
   </div>
+
   <div class="settings-section">
     <h2>API Keys</h2>
-    <p class="muted">API keys are stored securely and never exposed in the UI.</p>
+    <p class="muted">Keys live in server environment variables only — never stored in the database or shown here.</p>
     <div class="provider-status">
-      <span class="provider-label">LLM Key:</span>
+      <span class="provider-label">LLM Key (LLM_API_KEY):</span>
       <span class="provider-value">{{ "set" if llm_key_set else "not set" }}</span>
     </div>
+  </div>
+
+  <div class="settings-section">
+    <h2>Projection Budgets</h2>
     <div class="provider-status">
-      <span class="provider-label">Data Source Key:</span>
-      <span class="provider-value">{{ "set" if data_key_set else "not set" }}</span>
+      <span class="provider-label">Max steps:</span>
+      <span class="provider-value">{{ val("budget.max_steps") }}</span>
+    </div>
+    <div class="provider-status">
+      <span class="provider-label">Max LLM calls:</span>
+      <span class="provider-value">{{ val("budget.max_llm_calls") }}</span>
+    </div>
+    <div class="provider-status">
+      <span class="provider-label">Max tokens:</span>
+      <span class="provider-value">{{ val("budget.max_tokens") }}</span>
+    </div>
+    <div class="provider-status">
+      <span class="provider-label">Max branches:</span>
+      <span class="provider-value">{{ val("budget.max_branches") }}</span>
+    </div>
+    <div class="provider-status">
+      <span class="provider-label">Max runtime (s):</span>
+      <span class="provider-value">{{ val("budget.max_runtime_s") }}</span>
     </div>
   </div>
+
+  <div class="settings-section">
+    <h2>Engine Thresholds</h2>
+    <div class="provider-status">
+      <span class="provider-label">Beam width / reserved divergent:</span>
+      <span class="provider-value">{{ val("beam.width") }} / {{ val("beam.reserved_divergent") }}</span>
+    </div>
+    <div class="provider-status">
+      <span class="provider-label">Merge distance threshold:</span>
+      <span class="provider-value">{{ val("merge.distance_threshold") }}</span>
+    </div>
+    <div class="provider-status">
+      <span class="provider-label">Factor cap (macro / personal):</span>
+      <span class="provider-value">{{ val("factors.max_macro") }} / {{ val("factors.max_personal") }}</span>
+    </div>
+    <div class="provider-status">
+      <span class="provider-label">Step length min/max (days):</span>
+      <span class="provider-value">{{ val("step.min_days") }} / {{ val("step.max_days") }}</span>
+    </div>
+  </div>
+
   <div class="settings-section">
     <h2>Project Info</h2>
     <div class="provider-status">
