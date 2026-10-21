@@ -86,6 +86,15 @@ def detail(jid):
     tokens_max = caps.get("tokens", b.get("tokens_max", 500000)) or 500000
     steps_max = caps.get("steps", b.get("steps_max", 40)) or 40
     branches_used = b.get("branches", 0) or 0
+    if not branches_used:
+        # Pre-usage-tracking jobs: derive from the durable particles table.
+        try:
+            with get_conn() as c:
+                branches_used = c.execute(
+                    "SELECT COUNT(*) FROM particles WHERE job_id=? AND parent_id IS NOT NULL",
+                    (jid,)).fetchone()[0]
+        except Exception:
+            branches_used = 0
     branches_max = caps.get("branches", b.get("branches_max", 20)) or 20
     budget_pct = {
         "llm_calls": round(llm_calls_used / max(llm_calls_max, 1) * 100),
