@@ -27,8 +27,16 @@ def _seed_defaults() -> None:
 
 
 def _effective(db_rows: dict) -> dict:
-    """Effective config = env defaults, overridden by DB settings rows."""
+    """Effective config = env defaults, overridden by DB settings rows.
+
+    A DB row that merely repeats the seeded default must not mask a real
+    env-provided value: seed() writes env-independent defaults, so on a
+    deployment configured purely via environment (the docker-compose path)
+    the untouched default row would otherwise display and behave like the
+    seed value instead of the operator's env.
+    """
     from app.config import settings
+    from app.seed import DEFAULTS
     eff = {
         "llm.provider": settings.llm_provider,
         "llm.base_url": settings.llm_base_url,
@@ -49,8 +57,11 @@ def _effective(db_rows: dict) -> dict:
         "step.max_days": settings.step_max_days,
     }
     for k, v in db_rows.items():
-        if k in eff and v not in (None, ""):
-            eff[k] = v
+        if k not in eff or v in (None, ""):
+            continue
+        if k in DEFAULTS and str(v) == str(DEFAULTS[k]) and str(eff[k]) != str(DEFAULTS[k]):
+            continue  # untouched seed row loses to a real env value
+        eff[k] = v
     return eff
 
 

@@ -285,3 +285,18 @@ def test_settings_page_shows_effective_values():
     assert "500" in body                         # budget.max_llm_calls rendered
     assert body.count("Not configured") <= 1     # at most the optional key row
     assert "not reachable" in body or "reachable" in body  # status probe shown
+
+
+def test_settings_seed_rows_lose_to_real_env():
+    """A DB row that only repeats the seeded default must not mask an env value."""
+    from app.routes.settings import _effective
+    from app.seed import DEFAULTS
+    seeded = dict(DEFAULTS)
+    eff = _effective(seeded)
+    # env (set by conftest) is http://127.0.0.1:1; the seed row says ollama default
+    assert eff["llm.base_url"] != DEFAULTS["llm.base_url"]
+    assert eff["llm.base_url"] == "http://127.0.0.1:1"
+    # an explicit (non-default) DB override still wins over env
+    seeded2 = dict(DEFAULTS); seeded2["llm.base_url"] = "http://custom:9/v1"
+    eff2 = _effective(seeded2)
+    assert eff2["llm.base_url"] == "http://custom:9/v1"

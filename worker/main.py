@@ -90,7 +90,19 @@ def _run_job(job_id: str, owner: str) -> None:
         return
 
     # Acquire the lease. If it fails, another worker already has it.
-    if not acquire_lease(job_id, owner, ttl_s=LEASE_TTL_S, db_path=None):
+    # A transient lock error must not be read as "another worker owns this":
+    # retry a few times before giving up.
+    leased = False
+    for _attempt in range(3):
+        try:
+            leased = acquire_lease(job_id, owner, ttl_s=LEASE_TTL_S, db_path=None)
+            break
+        except Exception as e:
+            if "database is locked" in str(e) and _attempt < 2:
+                time.sleep(1.0 * (_attempt + 1))
+                continue
+            raise
+    if not leased:
         logger.warning("could not acquire lease for job %s, skipping", job_id)
         return
 
@@ -139,6 +151,11 @@ def _scan_and_run(owner: str) -> None:
         if status not in ("RUNNING", "RECOVERING", "CHECKPOINTING", "QUEUED"):
             continue
         _run_job(job_id, owner)
+        # _run_job drives a job end-to-end (or leaves it RUNNING with a live
+        # lease after a crash). Either way the state changed underneath this
+        # scan snapshot: re-derive the remaining list on the next poll so we
+        # never re-enter a job that is already in progress.
+        break
 
 
 def main() -> None:

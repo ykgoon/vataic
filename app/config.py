@@ -7,7 +7,11 @@ load_dotenv()
 
 
 def _get(name: str, default: str = "") -> str:
-    return os.environ.get(name, default)
+    # An env var that is present but empty counts as unset: compose/env_file
+    # deployments commonly ship `VAR=` placeholders, and those must not mask
+    # the documented defaults (e.g. LLM_PRIMARY_MODEL=).
+    v = os.environ.get(name)
+    return v if v not in (None, "") else default
 
 
 def _get_int(name: str, default: int) -> int:

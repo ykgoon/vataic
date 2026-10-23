@@ -4,7 +4,7 @@ import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 
-BUSY_TIMEOUT_MS = 5000
+BUSY_TIMEOUT_MS = 30000
 
 
 def resolve_db_path(path: str | None = None) -> Path:
