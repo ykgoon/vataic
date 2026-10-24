@@ -167,9 +167,12 @@ def act_loop_step(inp: dict) -> dict:
     out["budget"]["branches"] = int(n_branches)
     store_budget(jid, out["budget"])
     # Reflect live loop position on the job row (dashboard/detail progress).
-    with get_conn() as c:
-        c.execute("UPDATE projection_jobs SET current_phase='projection_loop', current_step=? WHERE id=?",
-                  (step_index, jid))
+    from app.jobs.repositories import _write_retry
+    def _touch():
+        with get_conn() as c:
+            c.execute("UPDATE projection_jobs SET current_phase='projection_loop', current_step=? WHERE id=?",
+                      (step_index, jid))
+    _write_retry(_touch)
     reason = stopping_reason(step_index, out["budget"],
                              horizon_reached=step_index >= budget.get("caps", {}).get("steps", 40))
     out["stop_reason"] = reason
@@ -291,6 +294,14 @@ class ProjectionJobWorkflow:
             return act_finalize(ctx)
 
         except Exception as e:
+            from app.db import get_conn
+            from app.jobs.repositories import now_iso
+            try:
+                with get_conn() as c:
+                    c.execute("UPDATE projection_jobs SET status='FAILED', error=?, updated_at=? WHERE id=?",
+                              (f"pipeline error: {e}", now_iso(), jid))
+            except Exception:
+                pass
             try:
                 transition(jid, "FAILED", f"pipeline error: {e}")
             except Exception:

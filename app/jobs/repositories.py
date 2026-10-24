@@ -45,16 +45,19 @@ def get_job(jid: str, db_path=None) -> dict | None:
         return dict(r) if r else None
 
 def transition(jid: str, to_state: str, message="", db_path=None) -> dict:
-    with get_conn(db_path) as c:
-        r = c.execute("SELECT status FROM projection_jobs WHERE id=?", (jid,)).fetchone()
-        if not r: raise KeyError(jid)
-        frm = r["status"]
-        validate(frm, to_state)
-        c.execute("UPDATE projection_jobs SET status=?, updated_at=? WHERE id=?",
-                  (to_state, now_iso(), jid))
-        c.execute("INSERT INTO job_events(job_id,from_state,to_state,message) VALUES(?,?,?,?)",
-                  (jid, frm, to_state, message))
-        return {"from": frm, "to": to_state}
+    from app.db import get_conn as _gc
+    def _once():
+        with _gc(db_path) as c:
+            r = c.execute("SELECT status FROM projection_jobs WHERE id=?", (jid,)).fetchone()
+            if not r: raise KeyError(jid)
+            frm = r["status"]
+            validate(frm, to_state)
+            c.execute("UPDATE projection_jobs SET status=?, updated_at=? WHERE id=?",
+                      (to_state, now_iso(), jid))
+            c.execute("INSERT INTO job_events(job_id,from_state,to_state,message) VALUES(?,?,?,?)",
+                      (jid, frm, to_state, message))
+            return {"from": frm, "to": to_state}
+    return _write_retry(_once)
 
 def append_event(jid: str, frm: str, to: str, message="", db_path=None) -> None:
     with get_conn(db_path) as c:

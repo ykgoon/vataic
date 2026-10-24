@@ -97,22 +97,26 @@ def run_step(job_id: str, step: int, particles: list[dict], developments_fn=None
         new_particles.extend(made)
     pruned = merge_prune(new_particles)
     budget["steps"] = budget.get("steps", 0) + 1
-    with get_conn(db_path) as c:
-        # stub parents first so parent_id FK always resolves
-        for pt in pruned:
-            par = pt.get("parent")
-            if par:
-                c.execute("""INSERT OR IGNORE INTO particles(id,job_id,probability,factor_state,created_step)
-                  VALUES(?,?,0.0,'{}',?)""", (par, job_id, step))
-        for pt in pruned:
-            c.execute("""INSERT OR REPLACE INTO particles(id,job_id,parent_id,probability,
-              factor_state,created_step) VALUES(?,?,?,?,?,?)""",
-              (pt.get("id", uuid.uuid4().hex[:8]), job_id, pt.get("parent"),
-               pt.get("probability", 0), json.dumps(pt.get("factor_state", {})), step))
-            c.execute("""INSERT OR REPLACE INTO particle_states(particle_id,step_index,factor_values,events)
-              VALUES(?,?,?,?)""", (pt.get("id"), step, json.dumps(pt.get("factor_state", {})), "[]"))
-        c.execute("""INSERT OR REPLACE INTO projection_steps(job_id,step_index,time_label,summary)
-          VALUES(?,?,?,?)""", (job_id, step, f"step-{step}", f"{len(pruned)} particles"))
+
+    def _write_step_rows():
+        with get_conn(db_path) as c:
+            # stub parents first so parent_id FK always resolves
+            for pt in pruned:
+                par = pt.get("parent")
+                if par:
+                    c.execute("""INSERT OR IGNORE INTO particles(id,job_id,probability,factor_state,created_step)
+                      VALUES(?,?,0.0,'{}',?)""", (par, job_id, step))
+            for pt in pruned:
+                c.execute("""INSERT OR REPLACE INTO particles(id,job_id,parent_id,probability,
+                  factor_state,created_step) VALUES(?,?,?,?,?,?)""",
+                  (pt.get("id", uuid.uuid4().hex[:8]), job_id, pt.get("parent"),
+                   pt.get("probability", 0), json.dumps(pt.get("factor_state", {})), step))
+                c.execute("""INSERT OR REPLACE INTO particle_states(particle_id,step_index,factor_values,events)
+                  VALUES(?,?,?,?)""", (pt.get("id"), step, json.dumps(pt.get("factor_state", {})), "[]"))
+            c.execute("""INSERT OR REPLACE INTO projection_steps(job_id,step_index,time_label,summary)
+              VALUES(?,?,?,?)""", (job_id, step, f"step-{step}", f"{len(pruned)} particles"))
+    from app.jobs.repositories import _write_retry
+    _write_retry(_write_step_rows)
     save_checkpoint(job_id, "projection_loop", step,
                     {"particles": pruned}, budget, db_path)
     return {"particles": pruned, "budget": budget}
