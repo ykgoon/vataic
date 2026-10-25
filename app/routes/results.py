@@ -1,4 +1,8 @@
-"""Results explorer: outcome cards, timeline tree, factor trajectories (htmx swaps)."""
+"""Futures view: outcome cards, fan chart, futures map, path stories,
+cornerstone rationales (htmx swaps). Implements
+openspec/changes/2026-10-25-futures-output (web-ui delta). The legacy
+timeline tree stays as a debug route; the legacy card page remains as a
+fallback for jobs without a futures view (non-completed)."""
 from flask import Blueprint, render_template
 import json
 import html
@@ -26,11 +30,70 @@ def _split_lines(value, n=6):
     return [p.strip() for p in parts if p.strip()][:n]
 
 
+def _scope_subtitle(scope: str) -> str:
+    """Scope-aware phrasing for the fan-chart heading."""
+    return "Where each future takes your factors" \
+        if (scope or "macro") == "personal" \
+        else "Where each future takes the key factors"
+
+
+def _with_colors(fv: dict) -> dict:
+    """Attach band colors to outcomes for template use (split bars, cards)."""
+    from app.futures_svg import band_color
+    for o in fv.get("outcomes", []):
+        o["color"] = band_color(o.get("band"))
+    return fv
+
+
 @bp.get("/results/<jid>")
 def results(jid):
     from app.db import get_conn
-    from app.present import (prepare_outcomes, repair_legacy_outcomes,
-                             factor_names_for_job, pct)
+    from app.present import repair_legacy_outcomes
+    with get_conn() as c:
+        job = c.execute("SELECT id, premise, status FROM projection_jobs WHERE id=?",
+                        (jid,)).fetchone()
+    if not job:
+        return "<p>missing job</p>", 404
+    if job["status"] == "COMPLETED":
+        # Legacy-outcome healing writes; skip for non-completed jobs so the
+        # page never queues behind a busy worker's write lock.
+        try:
+            repair_legacy_outcomes(jid)
+        except Exception:
+            pass
+    fv = None
+    try:
+        from app.futures import load_futures_view
+        fv = load_futures_view(jid)
+    except Exception:
+        fv = None
+    if fv and fv.get("outcomes"):
+        from app.futures_svg import fan_svg, map_svg
+        fv = _with_colors(fv)
+        f0 = fv["factors"][0] if fv["factors"] else None
+        fan_html, fan_legend = fan_svg(fv, f0["id"], f0["name"]) if f0 else ("", [])
+        map_html, _cornerstones = map_svg(fv, jid)
+        story_o = fv["outcomes"][0]
+        expand_all = False
+        try:
+            from flask import request
+            expand_all = request.args.get("expand") == "1"
+        except Exception:
+            pass
+        return render_template(
+            "results/index.html",
+            job={"id": jid, "premise": job["premise"]},
+            fv=fv,
+            fan_html=fan_html,
+            fan_legend=fan_legend,
+            fan_factor=f0,
+            map_html=map_html,
+            story_o=story_o,
+            scope_subtitle=_scope_subtitle(fv.get("scope", "macro")),
+            expand_all=expand_all,
+        )
+    # Legacy fallback (job not completed / no artifact yet): old card view.
+    from app.present import prepare_outcomes
     with get_conn() as c:
         outs = [dict(r) for r in c.execute("SELECT * FROM outcomes WHERE job_id=?", (jid,))]
         particles = [dict(r) for r in c.execute(
@@ -38,19 +101,89 @@ def results(jid):
         states = [dict(r) for r in c.execute(
             """SELECT ps.step_index, ps.factor_values FROM particle_states ps
                JOIN particles p ON p.id=ps.particle_id WHERE p.job_id=? LIMIT 50""", (jid,))]
-        job = c.execute("SELECT premise FROM projection_jobs WHERE id=?", (jid,)).fetchone()
-    try:
-        repair_legacy_outcomes(jid)
-        with get_conn() as c:
-            outs = [dict(r) for r in c.execute("SELECT * FROM outcomes WHERE job_id=?", (jid,))]
-    except Exception:
-        pass
     outcome_rows = prepare_outcomes(outs, jid)
-    return render_template("results/index.html",
-        job={"id": jid, "premise": job["premise"] if job else ""},
+    return render_template("results/legacy.html",
+        job={"id": jid, "premise": job["premise"]},
         outcomes=outcome_rows,
         particles=particles,
         states=states)
+
+
+def _wrap(inner: str, title: str = "Vataic") -> str:
+    """Render a partial as a full page for direct (non-htmx) access,
+    so deep links and screenshots get the site chrome."""
+    from flask import render_template
+    return render_template("results/partials_wrap.html", title=title, inner=inner)
+
+
+def _is_htmx() -> bool:
+    from flask import request
+    return bool(request.headers.get("HX-Request"))
+
+
+@bp.get("/results/<jid>/fan")
+def fan(jid):
+    """htmx partial: fan chart for one factor (tabs included)."""
+    from app.db import get_conn
+    from app.futures import load_futures_view
+    from app.futures_svg import fan_svg
+    from flask import request, render_template
+    fv = load_futures_view(jid)
+    if not fv:
+        return "<p class='muted'>futures view unavailable</p>", 404
+    factor = request.args.get("factor") or ""
+    f = next((x for x in fv["factors"] if x["id"] == factor), None) \
+        or (fv["factors"][0] if fv["factors"] else None)
+    if not f:
+        return "<p class='muted'>no factors recorded</p>"
+    fan_html, legend = fan_svg(fv, f["id"], f["name"])
+    rendered = render_template("results/partials/fan.html", jid=jid, fv=fv,
+                               factor=f, fan_html=fan_html, legend=legend,
+                               scope_subtitle=_scope_subtitle(fv.get("scope", "macro")))
+    return rendered if _is_htmx() else _wrap(rendered, "Factor trajectories")
+
+
+@bp.get("/results/<jid>/story")
+def story(jid):
+    """htmx partial: path story for one outcome, with cornerstone rationales."""
+    from app.futures import load_futures_view
+    from flask import request, render_template
+    fv = load_futures_view(jid)
+    if not fv:
+        return "<p class='muted'>futures view unavailable</p>", 404
+    oid = request.args.get("oid") or ""
+    o = next((x for x in fv["outcomes"] if x["id"] == oid), None) \
+        or (fv["outcomes"][0] if fv["outcomes"] else None)
+    if not o:
+        return "<p class='muted'>no outcomes</p>"
+    _with_colors(fv)
+    expand = request.args.get("expand") == "1"
+    rendered = render_template("results/partials/story.html", jid=jid, o=o, fv=fv,
+                               expand_all=expand)
+    return rendered if _is_htmx() else _wrap(rendered, "Path story")
+
+
+@bp.get("/results/<jid>/rationale")
+def rationale(jid):
+    """htmx partial: rationale for a branch-point cornerstone on the map."""
+    from app.futures import load_futures_view
+    from flask import request
+    fv = load_futures_view(jid)
+    if not fv:
+        return "<p class='muted'>futures view unavailable</p>", 404
+    try:
+        step = int(request.args.get("bp") or -1)
+    except Exception:
+        step = -1
+    bp = next((b for b in fv.get("branch_points", []) if int(b.get("step", -1)) == step), None)
+    if not bp:
+        rendered = "<p class='muted'>no fork recorded at this step</p>"
+        return rendered if _is_htmx() else _wrap(rendered, "Fork rationale")
+    _with_colors(fv)
+    outs = {o["id"]: o for o in fv["outcomes"] if o["id"] in bp.get("outcomes", [])}
+    rendered = render_template("results/partials/rationale.html", jid=jid, bp=bp,
+                               outs=outs, fv=fv)
+    return rendered if _is_htmx() else _wrap(rendered, "Fork rationale")
 
 
 @bp.get("/results/<jid>/outcome/<oid>")
@@ -105,6 +238,7 @@ def outcome_detail(jid, oid):
 
 @bp.get("/results/<jid>/tree")
 def tree(jid):
+    """Debug view: raw particle lineage. Not linked from primary navigation."""
     from app.db import get_conn
     with get_conn() as c:
         parts = [dict(r) for r in c.execute(
@@ -113,7 +247,7 @@ def tree(jid):
         f"<li><span hx-get='/results/{jid}/branch/{p['id']}' hx-target='#bdetail'>"
         f"{p['id']} ({p['probability']:.2f})</span></li>"
         for p in parts)
-    return f"<h1>Timeline tree</h1><ol>{items}</ol><div id='bdetail'></div>"
+    return f"<h1>Timeline tree (debug)</h1><ol>{items}</ol><div id='bdetail'></div>"
 
 
 @bp.get("/results/<jid>/branch/<pid>")

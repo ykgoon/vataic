@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Results — Job {{ job["id"][:8] }}{% endblock %}
+{% block content %}
+<div class="results-card">
+  <h1>Results — Job {{ job["id"][:8] }}</h1>
+  {% if job["premise"] %}
+  <p class="results-premise">&ldquo;{{ job["premise"] }}&rdquo;</p>
+  {% endif %}
+  <p class="muted">These are structured scenario explorations, not predictions.</p>
+
+  {% if outcomes %}
+  <div class="outcome-grid">
+    {% for o in outcomes %}
+    <div class="outcome-card" hx-get="/results/{{ job["id"] }}/outcome/{{ o["id"] }}" hx-trigger="click" hx-target="#detail">
+      <div class="outcome-header">
+        <span class="outcome-name">{{ o["name"] }}</span>
+        <span class="outcome-prob">{{ o["prob_display"] }}</span>
+      </div>
+      <span class="band badge-{{ o["band"]|lower }}">{{ o["band"] }}</span>
+      <p class="outcome-summary">{{ o["summary"][:220] }}{% if o["summary"]|length > 220 %}...{% endif %}</p>
+
+      {% if o["movers"] %}
+      <div class="outcome-factors">
+        <span class="outcome-label">Key factors (0=low, 100=high)</span>
+        <ul class="factor-list">
+          {% for n, v in o["movers"] %}
+          <li>{{ n }}: {{ "%.0f"|format(v) }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+
+      {% if o["indicators"] %}
+      <div class="outcome-indicators">
+        <span class="outcome-label">Watch for</span>
+        <ul class="indicator-list">
+          {% for ind in o["indicators"] %}
+          <li>{{ ind }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+
+      {% if o["assumptions"] %}
+      <div class="outcome-assumptions">
+        <span class="outcome-label">Assumes</span>
+        <ul class="assumption-list">
+          {% for a in o["assumptions"] %}
+          <li>{{ a }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+
+      {% if o["risks"] %}
+      <div class="outcome-risks">
+        <span class="outcome-label">What could break it</span>
+        <ul class="risk-list">
+          {% for r in o["risks"] %}
+          <li>{{ r }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="muted">No outcomes yet.</p>
+  {% endif %}
+
+  <div id="detail" class="detail-panel"></div>
+
+  <div class="actions-row">
+    <a href="/results/{{ job['id'] }}/tree" class="btn btn-secondary">Timeline Tree</a>
+    <a href="/results/{{ job['id'] }}/trajectories" class="btn btn-secondary">Factor Trajectories</a>
+    <a href="/jobs/{{ job['id'] }}" class="btn btn-primary">Back to Job</a>
+  </div>
+</div>
+{% endblock %}

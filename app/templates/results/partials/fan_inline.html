@@ -1,0 +1,17 @@
+{# Inline fan chart block: used by index.html; the /fan partial reuses fan.html #}
+<div class="tabs" role="tablist">
+  {% for f in fv["factors"] %}
+  <button class="tab {{ 'on' if f['id'] == fan_factor['id'] else '' }}"
+          hx-get="/results/{{ job['id'] }}/fan?factor={{ f['id'] }}"
+          hx-target="#fan-panel .fan-zone" hx-swap="innerHTML">{{ f["name"] }}</button>
+  {% endfor %}
+</div>
+<div class="fan-zone">
+  {{ fan_html|safe }}
+  {% if fan_legend %}
+  <ul class="fan-legend">
+    {% for item in fan_legend %}{{ item|safe }}{% endfor %}
+    <li><span class="sw sw-dash"></span>baseline</li>
+  </ul>
+  {% endif %}
+</div>

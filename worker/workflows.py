@@ -233,6 +233,16 @@ def act_finalize(inp: dict) -> dict:
     with get_conn() as c:
         outs = [dict(r) for r in c.execute("SELECT * FROM outcomes WHERE job_id=?", (jid,))]
     art = write_artifact(jid, "report", {"outcomes": outs})
+    # Futures-view artifact for the redesigned results page (openspec
+    # 2026-10-25-futures-output). Best-effort: must never fail the job.
+    try:
+        from app.futures import build_futures_view, save_futures_view
+        from app.jobs.repositories import _write_retry
+        fv = build_futures_view(jid)
+        if fv:
+            _write_retry(lambda: save_futures_view(jid, fv))
+    except Exception:
+        pass
     try:
         transition(jid, "COMPLETED", "finalized")
     except Exception:

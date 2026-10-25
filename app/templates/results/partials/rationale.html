@@ -1,0 +1,32 @@
+{# Branch-point rationale partial: why did the paths split at this fork #}
+<div class="bp-rationale">
+  <h3>Why the paths split here <span class="muted">({{ bp["time_label"] }})</span></h3>
+  {% if bp.get("events") %}
+  <div class="rationale-sec"><span class="rationale-label">What happened</span>
+    <ul>{% for e in bp["events"] %}<li>{{ e }}</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
+  {% if bp.get("turning_points") %}
+  <div class="rationale-sec"><span class="rationale-label">Turning point</span>
+    <ul>{% for t in bp["turning_points"] %}<li>{{ t }}</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
+  {% if bp.get("summary") and not bp.get("events") and not bp.get("turning_points") %}
+  <div class="rationale-sec"><span class="rationale-label">Step record</span>
+    <p>{{ bp["summary"] }}</p>
+  </div>
+  {% endif %}
+  {% if bp.get("factor_deltas") %}
+  <div class="rationale-sec"><span class="rationale-label">How the branches differ at this fork</span>
+    <ul>{% for d in bp["factor_deltas"] %}<li>{{ d["name"] }}: branches differ by {{ d["spread"] }} points</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
+  <div class="rationale-sec"><span class="rationale-label">Futures involved</span>
+    <ul>{% for oid, o in outs.items() %}
+      <li><span class="sw" style="background: {{ o["color"] }}"></span> {{ o["name"] }} &middot; {{ o["share_pct"] }}%</li>
+    {% endfor %}</ul>
+  </div>
+  {% if not bp.get("events") and not bp.get("turning_points") and not bp.get("factor_deltas") %}
+  <p class="muted">This run recorded no events or turning points at this step; the split is visible in the stored factor trajectories.</p>
+  {% endif %}
+</div>
