@@ -71,13 +71,29 @@ def _db_path_display() -> str:
 
 
 def _llm_reachable() -> tuple[bool, str]:
-    """Cheap reachability probe of the configured base URL (no key sent)."""
+    """Probe the real API surface (GET /models) with the configured key.
+
+    The gateway root may 404 on OpenAI-compatible providers that only serve
+    /v1/*, so "any HTTP response" is not evidence of reachability.
+    """
     import requests
     from app.config import settings
+    url = settings.llm_base_url.rstrip("/")
+    if not url:
+        return False, "no base URL configured"
+    headers = {"Authorization": f"Bearer {settings.llm_api_key}"} if settings.llm_api_key else {}
     try:
-        r = requests.get(settings.llm_base_url.rsplit("/v1", 1)[0] + "/",
-                         timeout=3)
-        return True, f"reachable (HTTP {r.status_code})"
+        r = requests.get(url + "/models", headers=headers, timeout=3)
+        if r.status_code != 200:
+            return True, f"reachable (HTTP {r.status_code})"
+        try:
+            ids = [str(m.get("id", "")) for m in (r.json().get("data") or [])]
+        except Exception:
+            ids = []
+        if ids:
+            shown = ", ".join(ids[:3]) + (f" +{len(ids) - 3} more" if len(ids) > 3 else "")
+            return True, f"reachable — {len(ids)} model(s): {shown}"
+        return True, "reachable (no models listed)"
     except Exception as e:
         return False, f"unreachable: {type(e).__name__}"
 
