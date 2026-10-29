@@ -1,0 +1,57 @@
+{# Path story partial: numbered time-anchored steps with click-to-expand
+   cornerstone rationales (openspec: cornerstone rationale disclosure) #}
+<div class="story-head">
+  <span class="badge badge-{{ o["band"]|lower }}">{{ o["band"] }}</span>
+  <strong>{{ o["short_name"] or o["name"] }}</strong>
+  <span class="prob">&middot; {{ o["share_pct"] }}% &middot; {{ o["members"] }} of {{ fv["timelines_explored"] }} timelines</span>
+</div>
+
+{% if o["story"] %}
+<ol class="story-steps">
+  {% for s in o["story"] %}
+  <li class="story-step">
+    <div class="story-when">{{ s["label"] }}</div>
+    <div class="story-body">
+      <p>{{ s["text"] }}</p>
+      {% if s.get("cornerstone") and s.get("rationale") %}
+      <details class="rationale" {{ 'open' if expand_all else '' }}>
+        <summary>Why this happens</summary>
+        <div class="rationale-body">
+          {% if s["rationale"].get("causal_chain") %}
+          <div class="rationale-sec"><span class="rationale-label">Causal chain</span>
+            <ul>{% for c in s["rationale"]["causal_chain"] %}<li>{{ c }}</li>{% endfor %}</ul>
+          </div>
+          {% endif %}
+          {% if s["rationale"].get("factor_moves") %}
+          <div class="rationale-sec"><span class="rationale-label">Factor moves at this point</span>
+            <ul>{% for m in s["rationale"]["factor_moves"] %}
+              <li>{{ m["name"] }}: {{ m["from"] }} &rarr; {{ m["to"] }} ({{ '+' if m["delta"] >= 0 else '' }}{{ m["delta"] }})</li>
+            {% endfor %}</ul>
+          </div>
+          {% endif %}
+          {% if s["rationale"].get("assumptions") %}
+          <div class="rationale-sec"><span class="rationale-label">Depends on</span>
+            <ul>{% for a in s["rationale"]["assumptions"] %}<li>{{ a }}</li>{% endfor %}</ul>
+          </div>
+          {% endif %}
+        </div>
+      </details>
+      {% endif %}
+    </div>
+  </li>
+  {% endfor %}
+</ol>
+{% else %}
+<p class="muted">No stored trajectory for this path's representative timeline.</p>
+{% endif %}
+
+{% if o["indicators"] %}
+<div class="early-signals">
+  <span class="early-label">Early signals to watch</span>
+  <ul>{% for i in o["indicators"] %}<li>{{ i }}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+
+{% if o["story_source"] == "milestones" %}
+<p class="muted story-source-note">Story steps derived from stored factor trajectories (this run recorded no step events).</p>
+{% endif %}

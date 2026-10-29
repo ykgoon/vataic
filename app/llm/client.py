@@ -4,6 +4,36 @@ import requests
 from pydantic import BaseModel, ValidationError
 from app.db import get_conn
 
+# Per-process circuit breaker: after this many consecutive provider failures
+# without a success, callers should treat the provider as down and skip straight
+# to heuristic fallbacks instead of paying the retry/timeout cost per call.
+_BREAK_TS = {"failures": 0, "opened_at": 0.0}
+_BREAK_THRESHOLD = 3
+_BREAK_COOLDOWN_S = 45.0
+
+
+def provider_open() -> bool:
+    """True when the circuit allows another attempt."""
+    if _BREAK_TS["failures"] < _BREAK_THRESHOLD:
+        return True
+    return (time.time() - _BREAK_TS["opened_at"]) >= _BREAK_COOLDOWN_S
+
+
+def reset_breaker() -> None:
+    """Clear the circuit breaker (e.g. tests, manual retry)."""
+    _BREAK_TS["failures"] = 0
+    _BREAK_TS["opened_at"] = 0.0
+
+
+def _record_success() -> None:
+    _BREAK_TS["failures"] = 0
+
+
+def _record_failure() -> None:
+    _BREAK_TS["failures"] += 1
+    if _BREAK_TS["failures"] >= _BREAK_THRESHOLD:
+        _BREAK_TS["opened_at"] = time.time()
+
 # ---------- validators (5.5) ----------
 class ParseOut(BaseModel):
     premise_type: str = "event"
@@ -44,15 +74,18 @@ VALIDATORS = {"parse": ParseOut, "factors": FactorOut, "causal": CausalOut,
 
 # ---------- client (5.1) ----------
 class LLMClient:
-    def __init__(self, base_url="", api_key="", model="", timeout_s=300, max_attempts=4,
-                 backoff_base_s=1.5, db_path=None):
+    def __init__(self, base_url="", api_key="", model="", timeout_s=None,
+                 max_attempts=None, backoff_base_s=None, db_path=None):
+        """Defaults come from settings (env-configured); the old hardcoded
+        defaults (300/4) silently overrode LLM_REQUEST_TIMEOUT_S etc. because
+        `300 or settings.x` is always 300."""
         from app.config import settings
         self.base_url = (base_url or settings.llm_base_url).rstrip("/")
         self.api_key = api_key or settings.llm_api_key
         self.model = model or settings.llm_primary_model
         self.timeout_s = timeout_s or settings.llm_timeout_s
         self.max_attempts = max_attempts or settings.llm_max_attempts
-        self.backoff = backoff_base_s
+        self.backoff = backoff_base_s if backoff_base_s is not None else settings.llm_backoff_base_s
         self.db_path = db_path
 
     @staticmethod
@@ -75,6 +108,14 @@ class LLMClient:
             r = c.execute("SELECT response FROM llm_calls WHERE cache_key=?", (key,)).fetchone()
             if r:
                 return {"json": json.loads(r["response"]), "cache_hit": True, "key": key}
+        if not provider_open():
+            # Half-open: allow one probe attempt per cooldown window so a
+            # recovered provider is picked up; otherwise fail fast to the
+            # heuristic fallback without paying timeout×attempts again.
+            if (time.time() - _BREAK_TS["opened_at"]) >= _BREAK_COOLDOWN_S / 2:
+                _BREAK_TS["opened_at"] = time.time()  # extend window; result updates below
+            else:
+                raise RuntimeError("LLM provider circuit open (recent failures)")
         # retry with exponential backoff (5.4)
         last = None
         for attempt in range(self.max_attempts):
@@ -82,13 +123,14 @@ class LLMClient:
                 resp = requests.post(f"{self.base_url}/chat/completions",
                     headers=self._headers(),
                     json={"model": mdl, "messages": messages, "response_format": {"type": "json_object"}},
-                    timeout=self.timeout_s)
+                    timeout=(min(10, self.timeout_s), self.timeout_s))
                 if resp.status_code in (429,) or resp.status_code >= 500:
                     raise RuntimeError(f"transient {resp.status_code}")
                 resp.raise_for_status()
                 data = resp.json()
                 text = data["choices"][0]["message"]["content"]
                 parsed = json.loads(text)
+                _record_success()
                 usage = data.get("usage") or {}
                 try:
                     from app.llm.usage import record_llm_usage
@@ -111,6 +153,7 @@ class LLMClient:
                 return {"json": parsed, "cache_hit": False, "key": key}
             except Exception as e:
                 last = e
+                _record_failure()
                 time.sleep(self.backoff * (2 ** attempt))
         raise RuntimeError(f"LLM call failed after {self.max_attempts}: {last}")
 

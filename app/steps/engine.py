@@ -63,8 +63,15 @@ def stopping_reason(step: int, budget: dict, clusters_stable: bool = False,
     return None
 
 def run_step(job_id: str, step: int, particles: list[dict], developments_fn=None,
-             reality_mode="grounded", budget: dict | None = None, db_path=None) -> dict:
-    """One deterministic projection step across particles with checkpoint write."""
+             reality_mode="grounded", budget: dict | None = None, db_path=None,
+             llm_mode: bool = False, step_events: dict | None = None) -> dict:
+    """One projection step across particles with checkpoint write.
+
+    llm_mode marks that developments came from the LLM proposer (vs the
+    heuristic fallback). step_events maps particle id -> {summary, events}
+    returned by the proposer; they are persisted on particle_states and folded
+    into the shared step summary so stories can cite real recorded events.
+    """
     from app.jobs.repositories import idem_key, idem_get, idem_put, save_checkpoint
     budget = budget or {}
     new_particles: list[dict] = []
@@ -97,6 +104,9 @@ def run_step(job_id: str, step: int, particles: list[dict], developments_fn=None
         new_particles.extend(made)
     pruned = merge_prune(new_particles)
     budget["steps"] = budget.get("steps", 0) + 1
+    step_events = step_events or {}
+    rec_summaries = [v.get("summary") for v in step_events.values() if v.get("summary")]
+    rec_events = [e for v in step_events.values() for e in v.get("events", []) if e]
 
     def _write_step_rows():
         with get_conn(db_path) as c:
@@ -107,16 +117,29 @@ def run_step(job_id: str, step: int, particles: list[dict], developments_fn=None
                     c.execute("""INSERT OR IGNORE INTO particles(id,job_id,probability,factor_state,created_step)
                       VALUES(?,?,0.0,'{}',?)""", (par, job_id, step))
             for pt in pruned:
+                ev = step_events.get(pt.get("id", "")) or step_events.get(pt.get("parent", "")) or {}
                 c.execute("""INSERT OR REPLACE INTO particles(id,job_id,parent_id,probability,
                   factor_state,created_step) VALUES(?,?,?,?,?,?)""",
                   (pt.get("id", uuid.uuid4().hex[:8]), job_id, pt.get("parent"),
                    pt.get("probability", 0), json.dumps(pt.get("factor_state", {})), step))
                 c.execute("""INSERT OR REPLACE INTO particle_states(particle_id,step_index,factor_values,events)
-                  VALUES(?,?,?,?)""", (pt.get("id"), step, json.dumps(pt.get("factor_state", {})), "[]"))
-            c.execute("""INSERT OR REPLACE INTO projection_steps(job_id,step_index,time_label,summary)
-              VALUES(?,?,?,?)""", (job_id, step, f"step-{step}", f"{len(pruned)} particles"))
+                  VALUES(?,?,?,?)""", (pt.get("id"), step, json.dumps(pt.get("factor_state", {})),
+                                        json.dumps(ev.get("events", []))))
+            # Shared step narrative: recorded events/summaries when the LLM
+            # proposer ran; a neutral step marker otherwise (junk-filtered later).
+            if rec_summaries or rec_events:
+                summary = "; ".join((rec_summaries + rec_events)[:4])[:400]
+                c.execute("""INSERT OR REPLACE INTO projection_steps(job_id,step_index,time_label,summary,turning_points)
+                  VALUES(?,?,?,?,?)""", (job_id, step, f"step-{step}", summary,
+                                          json.dumps(rec_events[:3])))
+            else:
+                c.execute("""INSERT OR REPLACE INTO projection_steps(job_id,step_index,time_label,summary)
+                  VALUES(?,?,?,?)""", (job_id, step, f"step-{step}", f"{len(pruned)} particles"))
     from app.jobs.repositories import _write_retry
     _write_retry(_write_step_rows)
     save_checkpoint(job_id, "projection_loop", step,
-                    {"particles": pruned}, budget, db_path)
-    return {"particles": pruned, "budget": budget}
+                    {"particles": pruned, "events": rec_events}, budget, db_path)
+    out = {"particles": pruned, "budget": budget, "llm_mode": llm_mode}
+    if rec_events:
+        out["events"] = rec_events
+    return out

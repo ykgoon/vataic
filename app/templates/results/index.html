@@ -59,7 +59,10 @@
       <span class="badge badge-{{ o["band"]|lower }}">{{ o["band"] }}</span>
       <h3>{{ o["short_name"] }}</h3>
       <div class="prob">{{ o["share_pct"] }}% &middot; {{ o["members"] }} of {{ fv["timelines_explored"] }} timelines</div>
-      <p class="arc">{{ o["summary"][:240] }}{% if o["summary"]|length > 240 %}&hellip;{% endif %}</p>
+      <p class="arc">{{ (o["explanation"] or o["summary"])[:240] }}{% if (o["explanation"] or o["summary"])|length > 240 %}&hellip;{% endif %}</p>
+      {% if o["llm_named"] and o["summary"] and o["explanation"] %}
+      <p class="muted">{{ o["summary"][:160] }}{% if o["summary"]|length > 160 %}&hellip;{% endif %}</p>
+      {% endif %}
       {% if o["end_deltas"] %}
       <div class="chips">
         {% for d in o["end_deltas"][:4] %}

@@ -85,21 +85,31 @@ def _summarize(premise: str, rep: dict, g: list[dict], names: dict) -> str:
 
 
 def _narrative(outcome: dict, premise: str, names: dict) -> str:
-    """Plain-language explanation a reader can act on (no LLM)."""
+    """Plain-language explanation a reader can act on (no LLM). Ties the factor
+    movements back to the premise instead of restating bare numbers."""
     band_txt = {"dominant": "the most likely path",
                 "plausible": "a credible path",
                 "alternative": "a secondary path",
                 "tail": "a low-probability path"}.get(outcome.get("band"), "a possible path")
-    lines = [f"This outcome is {band_txt} with about {_pct(outcome.get('probability', 0))} "
-             f"of the explored probability mass."]
+    lines = []
+    if premise:
+        lines.append(f"For the premise “{premise[:200]}”, this is {band_txt} "
+                     f"carrying about {_pct(outcome.get('probability', 0))} "
+                     f"of the explored probability mass.")
+    else:
+        lines.append(f"This outcome is {band_txt} with about {_pct(outcome.get('probability', 0))} "
+                     f"of the explored probability mass.")
     movers = sorted(outcome.get("factor_states", {}).items(),
                     key=lambda kv: abs(float(kv[1]) - 50.0), reverse=True
                     ) if isinstance(outcome.get("factor_states"), dict) else []
     movers = [(names.get(k, k), float(v)) for k, v in movers
               if isinstance(v, (int, float))][:4]
     if movers:
-        lines.append("What drives it: " + "; ".join(
-            f"{n} ends {_direction(v)} ({v:.0f}/100)" for n, v in movers) + ".")
+        tops = ", ".join(f"{n} moves to {v:.0f}/100 ({_direction(v)})" for n, v in movers[:2])
+        rest = [n for n, _ in movers[2:]]
+        lines.append(f"In this future, {tops}"
+                     + (", with " + " and ".join(rest) + " also shifting" if rest else "")
+                     + ".")
     inds = outcome.get("indicators") or []
     if inds:
         lines.append("Watch for: " + ", ".join(inds[:3]) + ".")
@@ -170,11 +180,50 @@ def _deterministic_enrich(o: dict, db_path=None, names: dict | None = None) -> d
     return o
 
 
+def llm_cluster_labels(job_id: str, premise: str, groups: list[list[dict]],
+                       names: dict, db_path=None) -> dict | None:
+    """LLM naming of clustered outcomes (llm-gateway ClusterOut phase).
+    Returns {outcome-index: {name, summary}} or None when unavailable."""
+    try:
+        from app.llm.client import LLMClient, model_for_phase
+        def _desc(g):
+            fs = g[0].get("factor_state", {})
+            return ", ".join(f"{names.get(k, k)} {v:.0f}/100"
+                             for k, v in sorted(fs.items(),
+                                                key=lambda kv: abs(float(kv[1]) - 50.0),
+                                                reverse=True)[:6])
+        payload = [{"cluster": i, "timelines": len(g), "end_state": _desc(g)}
+                   for i, g in enumerate(groups)]
+        out = LLMClient(db_path=db_path).chat(job_id, "cluster", [
+            {"role": "system", "content":
+             "Given a scenario premise and clustered end-states of explored timelines, "
+             "name each cluster and give a one-sentence summary of how that future "
+             "unfolds for the premise. Respond ONLY with JSON of shape: "
+             "{\"labels\": [{\"cluster\": int, \"name\": str, \"summary\": str}]}. "
+             "Names must be specific to the premise (what actually happens, e.g. "
+             "'SaaS becomes commodity data feed', 'Agent economy locks in the SaaS'), "
+             "never generic. Summaries must say how the premise turns out."},
+            {"role": "user", "content":
+             ("Premise: " + premise[:600] + "\n" if premise else "") +
+             json.dumps(payload)[:3000]}],
+            model=model_for_phase("cluster"))["json"]
+        labels = {}
+        for l in out.get("labels", []):
+            if isinstance(l, dict) and isinstance(l.get("cluster"), int):
+                labels[l["cluster"]] = {"name": str(l.get("name", ""))[:80],
+                                        "summary": str(l.get("summary", ""))[:300]}
+        return labels or None
+    except Exception:
+        return None
+
+
 def synthesize(job_id: str, particles: list[dict], n_outcomes: int = 7,
                personal: dict | None = None, db_path=None,
                premise: str = "") -> list[dict]:
     from app.db import get_conn
     groups = cluster(particles, n_outcomes)
+    llm_labels = llm_cluster_labels(job_id, premise, groups, names=_human_factor_names(db_path),
+                                    db_path=db_path) if (premise and len(groups) > 1) else None
     total = sum(p.get("probability", 0) for p in particles) or 1.0
     names = _human_factor_names(db_path)
     outcomes = []
@@ -183,8 +232,11 @@ def synthesize(job_id: str, particles: list[dict], n_outcomes: int = 7,
         rep = max(g, key=lambda p: p.get("probability", 0))
         oid = uuid.uuid4().hex[:12]
         fs = rep.get("factor_state", {})
+        lbl = (llm_labels or {}).get(i, {})
         o = {"id": oid, "probability": w, "band": band_for(w),
-             "summary": _summarize(premise, rep, g, names),
+             "summary": (lbl.get("summary") or
+                         _summarize(premise, rep, g, names)),
+             "llm_named": bool(lbl.get("name")),
              "factor_states": rep.get("factor_state", {}), "causal_path": [],
              "indicators": [], "assumptions": [], "risks": [],
              "explanation": "", "representative": rep.get("id", ""),
@@ -202,6 +254,12 @@ def synthesize(job_id: str, particles: list[dict], n_outcomes: int = 7,
     ranked = sorted(outcomes, key=lambda o: -o["probability"])
     for rank, o in enumerate(ranked, start=1):
         o["name"] = f"Outcome {rank} · {_pct(o['probability'])} · {o['band']}"
+    # LLM cluster labels replace generic numbering when available
+    if llm_labels:
+        for i, o in enumerate(outcomes):
+            lbl = llm_labels.get(i, {})
+            if lbl.get("name"):
+                o["name"] = lbl["name"]
     outcomes.sort(key=lambda o: -o["probability"])
     # Deterministic enrichment (uses final probability + band).
     for o in outcomes:
@@ -238,11 +296,13 @@ def explain(outcome: dict, use_llm=False, job_id="", db_path=None,
                 {"role": "system", "content":
                  "You are explaining one scenario-projection outcome to a non-technical reader. "
                  "Given the outcome JSON, return JSON with keys: explanation (a clear paragraph: "
-                 "what this future is, how it comes about, what it means for the premise), "
-                 "indicators (list of early signals), assumptions (list), risks (list). "
+                 "what this future is, the concrete story of how the world gets there, and what "
+                 "it means for the premise question — reference the premise's actual subject and "
+                 "question; never write generic filler), "
+                 "indicators (list of early signals specific to the premise), assumptions (list), risks (list). "
                  "Use plain language and full factor names; never raw factor ids."},
                 {"role": "user", "content":
-                 (("Premise: " + premise[:400] + "\n") if premise else "") +
+                 (("Premise: " + premise[:600] + "\n") if premise else "") +
                  json.dumps(outcome)[:3000]}],
                 model=model_for_phase("explanation"))["json"]
             if isinstance(r, dict) and r.get("explanation"):

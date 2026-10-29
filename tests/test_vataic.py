@@ -12,8 +12,11 @@ def _db(monkeypatch):
     monkeypatch.setenv("DATABASE_PATH", DB)
     monkeypatch.setenv("ARTIFACT_DIR", "/tmp/vataic-test-artifacts")
     monkeypatch.setenv("LLM_BASE_URL", "http://127.0.0.1:1")
+    import app.llm.client as _cl
+    _cl.reset_breaker()  # per-test provider state, not carried between tests
     monkeypatch.setenv("LLM_REQUEST_TIMEOUT_S", "1")
     monkeypatch.setenv("LLM_MAX_ATTEMPTS", "1")
+    monkeypatch.setenv("LLM_BACKOFF_BASE_S", "0.05")
     import importlib
     import app.config as cfg
     importlib.reload(cfg)

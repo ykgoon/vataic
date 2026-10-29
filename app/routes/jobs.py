@@ -192,6 +192,56 @@ def retry(jid):
     return _ctrl(jid, "retry")
 
 
+@bp.post("/jobs/<jid>/re-explain")
+def reexplain(jid):
+    """Re-run the explanation phase for a completed job whose outcome cards
+    carry only template narrative (e.g. explained while the LLM was down),
+    then rebuild the futures-view artifact. Best-effort; the job stays
+    COMPLETED either way."""
+    from app.jobs.repositories import get_job, _write_retry
+    from app.db import get_conn
+    from app.steps.synthesis import explain
+    from app.futures import build_futures_view, save_futures_view
+    import json as _json
+    job = get_job(jid) or {}
+    if job.get("status") != "COMPLETED":
+        return render_template("jobs/status_badge.html", status="not completed")
+    premise = job.get("premise", "")
+    try:
+        with get_conn() as c:
+            rows = [dict(r) for r in c.execute(
+                "SELECT * FROM outcomes WHERE job_id=?", (jid,))]
+        updated = 0
+        for r in rows:
+            def _j(v):
+                try: return _json.loads(v) if v else []
+                except Exception: return []
+            o = {"name": r["name"], "probability": r["probability"], "band": r["band"],
+                 "summary": r["summary"], "factor_states": _j(r.get("factor_states")),
+                 "indicators": _j(r.get("indicators")), "assumptions": _j(r.get("assumptions")),
+                 "risks": _j(r.get("risks")), "causal_path": _j(r.get("causal_path"))}
+            e = explain(o, use_llm=True, job_id=jid, premise=premise)
+            if e.get("explanation") and e["explanation"] != (r.get("explanation") or ""):
+                def _upd(_e=e, _rid=r["id"]):
+                    with get_conn() as c:
+                        c.execute("UPDATE outcomes SET explanation=?, indicators=?, assumptions=?, risks=? WHERE id=?",
+                                  (_e.get("explanation", ""), _json.dumps(_e.get("indicators", [])),
+                                   _json.dumps(_e.get("assumptions", [])), _json.dumps(_e.get("risks", [])), _rid))
+                _write_retry(_upd)
+                updated += 1
+        # Rebuild the futures-view artifact (updated_at bump forces rebuild).
+        def _touch():
+            with get_conn() as c:
+                c.execute("UPDATE projection_jobs SET updated_at=datetime('now') WHERE id=?", (jid,))
+        _write_retry(_touch)
+        fv = build_futures_view(jid)
+        if fv:
+            _write_retry(lambda: save_futures_view(jid, fv))
+        return render_template("jobs/status_badge.html", status=f"re-explained {updated}")
+    except Exception as e:
+        return render_template("jobs/status_badge.html", status=f"error: {e}")
+
+
 @bp.get("/jobs/<jid>/review")
 def review(jid):
     from app.db import get_conn

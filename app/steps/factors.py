@@ -1,5 +1,6 @@
 """Factor selection + causal graph + world state (tasks 7.x)."""
 import json, math, itertools
+from app.config import settings
 from app.db import get_conn
 from app.jobs.repositories import idem_key, idem_get, idem_put
 
@@ -12,6 +13,43 @@ PERSONAL_CATS = ["financial_resilience","income_trajectory","skill_development",
 
 def importance(direct: float, cascade: float, uncert: float, policy: float, obs: float) -> float:
     return 0.35*direct + 0.25*cascade + 0.15*uncert + 0.15*policy + 0.10*obs
+
+def llm_candidates(premise: str, scope="macro", db_path=None) -> list[dict] | None:
+    """Premise-specific factor candidates via the LLM (scenario-intake spec:
+    factors drawn from whatever impact surfaces apply to this premise).
+    Returns None when the LLM is unavailable so the caller falls back to the
+    generic surface list."""
+    try:
+        from app.llm.client import LLMClient, model_for_phase
+        cap = settings.factor_max_personal if scope == "personal" else settings.factor_max_macro
+        out = LLMClient(db_path=db_path).chat("factors", "factors", [
+            {"role": "system", "content":
+             "Given a scenario premise, select the consequential factors that determine "
+             "how this specific premise unfolds. Respond ONLY with JSON of shape: "
+             "{\"factors\": [{\"name\": str, \"surface\": str, \"rationale\": str}], "
+             "\"discarded\": [{\"name\": str, \"surface\": str}]}. "
+             "Factor names must be specific to the premise (e.g. for a SaaS whose users "
+             "are AI agents: 'Agent platform dependence', 'API contract lock-in', 'Data "
+             "exclusivity'), not generic world surfaces. Keep at most "
+             f"{cap} factors and rank them by importance, most important first."},
+            {"role": "user", "content":
+             ("Scope: " + scope + ".\n" if scope else "") + "Premise: " + premise[:800]}],
+            model=model_for_phase("factors"))["json"]
+        cands = []
+        for i, f in enumerate(out.get("factors", [])):
+            if not isinstance(f, dict) or not f.get("name"):
+                continue
+            cands.append({"id": f"f{i}", "name": str(f["name"]).strip()[:60],
+                          "surface": str(f.get("surface") or f["name"]).strip()[:40],
+                          "rationale": str(f.get("rationale", ""))[:200],
+                          "type": "index", "range": [0, 100], "current": 50.0,
+                          "baseline": 50.0, "trend": 0.0, "momentum": 0.0,
+                          "volatility": 0.3,
+                          "importance": importance(0.9 - i*0.03, 0.7 - i*0.03, 0.6, 0.5, 0.6)})
+        return cands or None
+    except Exception:
+        return None
+
 
 def select_factors(job_id: str, candidates: list[dict], scope="macro", db_path=None) -> dict:
     from app.config import settings
@@ -96,11 +134,35 @@ def _default_edges(factor_ids: list) -> list[dict]:
     return edges
 
 
+def llm_causal_edges(job_id: str, premise: str, factors: list[dict],
+                     db_path=None) -> list[dict] | None:
+    """LLM-proposed causal edges over the selected factors. Returns None when
+    the LLM is unavailable so the caller falls back to _default_edges."""
+    try:
+        from app.llm.client import LLMClient, model_for_phase
+        flines = "\n".join(f"- {f['id']}: {f.get('name', f['id'])}" for f in factors)
+        out = LLMClient(db_path=db_path).chat(job_id, "causal", [
+            {"role": "system", "content":
+             "Given a scenario premise and its factors, propose the causal edges between "
+             "factors that drive how the premise unfolds. Respond ONLY with JSON of shape: "
+             "{\"edges\": [{\"source\": factor_id, \"target\": factor_id, \"polarity\": \"+\"|\"-\", "
+             "\"strength\": -1..1, \"delay_days\": int, \"rationale\": str}]}. "
+             "Only use the listed factor ids. 5-15 edges. Strength magnitude should reflect "
+             "how strongly the source moves the target."},
+            {"role": "user", "content":
+             ("Premise: " + premise[:600] + "\n" if premise else "") + "Factors:\n" + flines}],
+            model=model_for_phase("causal"))["json"]
+        edges = [e for e in out.get("edges", []) if isinstance(e, dict)]
+        return edges or None
+    except Exception:
+        return None
+
+
 def build_causal_graph(job_id: str, factors: list[dict], proposed: list[dict] | None = None,
                        db_path=None) -> dict:
     ids = {f["id"] for f in factors}
     edges, failures = [], []
-    proposed = proposed or _default_edges([f["id"] for f in factors])
+    proposed = proposed if proposed is not None else _default_edges([f["id"] for f in factors])
     for e in proposed:
         err = validate_edge(e, ids)
         if err:

@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}Futures — Job {{ job["id"][:8] }}{% endblock %}
+{% block content %}
+<div class="results-card futures-view">
+  <div class="futures-head">
+    <h1>Futures overview</h1>
+    {% if job["premise"] %}
+    <p class="results-premise">&ldquo;{{ job["premise"] }}&rdquo;</p>
+    {% endif %}
+    <div class="futures-meta">
+      <span>horizon: {{ fv["horizon"] }}</span>
+      <span>&middot;</span>
+      <span>{{ fv["timelines_explored"] }} timelines explored</span>
+      <span>&middot;</span>
+      <span>{{ fv["outcomes"]|length }} distinct future{{ '' if fv["outcomes"]|length == 1 else 's' }}</span>
+      {% if fv["heuristic_mode"] %}
+      <span class="heuristic-badge" title="This job completed without any LLM calls; narrative text is template-generated from stored data.">heuristic mode</span>
+      {% endif %}
+      {% if fv["story_source"] == "milestones" and not fv["heuristic_mode"] %}
+      <span class="heuristic-badge" title="Story steps were derived from stored factor trajectories, not recorded events.">milestone-derived story</span>
+      {% endif %}
+    </div>
+    <p class="muted disclaimer">These are structured scenario explorations, not predictions.</p>
+  </div>
+
+  <section class="fcard">
+    <h2>How the futures split</h2>
+    <div class="split-rows">
+      {% for o in fv["outcomes"] %}
+      <div class="bar-row">
+        <span class="bar-label">{{ o["short_name"] }}</span>
+        <div class="bar-track"><div class="bar-fill" style="width: {{ o["share_pct"] }}%; background: {{ o["color"] }}"></div></div>
+        <span class="bar-pct">{{ o["share_pct"] }}% &middot; {{ o["members"] }} of {{ fv["timelines_explored"] }} timelines</span>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="fcard" id="fan-panel">
+    <h2>{{ scope_subtitle }}</h2>
+    {% include "results/partials/fan_inline.html" %}
+  </section>
+
+  <section class="fcard">
+    <h2>The futures map</h2>
+    <p class="hint">All {{ fv["timelines_explored"] }} timelines, left to right. Line thickness = share of timelines. Click a path to open its story; click a fork marker to see why paths split.</p>
+    <div class="map-wrap">{{ map_html|safe }}</div>
+    <div id="map-rationale" class="map-rationale"></div>
+  </section>
+
+  <section class="fcard">
+    <h2>Story of the selected path</h2>
+    <div id="story-panel">{% with o = story_o, expand_all = false %}{% include "results/partials/story.html" %}{% endwith %}</div>
+  </section>
+
+  <section class="cards-row" id="cards-row">
+    {% for o in fv["outcomes"] %}
+    <div class="oc" style="border-top: 3px solid {{ o["color"] }}">
+      <span class="badge badge-{{ o["band"]|lower }}">{{ o["band"] }}</span>
+      <h3>{{ o["short_name"] }}</h3>
+      <div class="prob">{{ o["share_pct"] }}% &middot; {{ o["members"] }} of {{ fv["timelines_explored"] }} timelines</div>
+      <p class="arc">{{ o["summary"][:240] }}{% if o["summary"]|length > 240 %}&hellip;{% endif %}</p>
+      {% if o["end_deltas"] %}
+      <div class="chips">
+        {% for d in o["end_deltas"][:4] %}
+        <span class="chip">{{ d["name"] }} <span class="{{ 'up' if d["delta"] >= 0 else 'dn' }}">{{ '+' if d["delta"] >= 0 else '−' }}{{ '%.0f'|format(d["delta"]|abs) }}</span></span>
+        {% endfor %}
+      </div>
+      {% endif %}
+      <details class="oc-details">
+        <summary>Watch for</summary>
+        <ul>{% for i in o["indicators"] %}<li>{{ i }}</li>{% endfor %}</ul>
+      </details>
+      <details class="oc-details">
+        <summary>Assumes</summary>
+        <ul>{% for a in o["assumptions"] %}<li>{{ a }}</li>{% endfor %}</ul>
+      </details>
+      <details class="oc-details">
+        <summary>What could break it</summary>
+        <ul>{% for r in o["risks"] %}<li>{{ r }}</li>{% endfor %}</ul>
+      </details>
+      <details class="oc-details">
+        <summary>Causal path</summary>
+        <ul>{% for c in o["causal_path"] %}<li>{{ c }}</li>{% endfor %}</ul>
+      </details>
+    </div>
+    {% endfor %}
+  </section>
+
+  <div class="actions-row">
+    <a href="/results/{{ job['id'] }}/tree" class="btn btn-secondary">Timeline Tree (debug)</a>
+    <a href="/results/{{ job['id'] }}/trajectories" class="btn btn-secondary">Factor Trajectories (all timelines)</a>
+    <a href="/jobs/{{ job['id'] }}" class="btn btn-primary">Back to Job</a>
+  </div>
+</div>
+{% endblock %}

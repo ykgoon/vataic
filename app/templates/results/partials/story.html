@@ -6,6 +6,12 @@
   <span class="prob">&middot; {{ o["share_pct"] }}% &middot; {{ o["members"] }} of {{ fv["timelines_explored"] }} timelines</span>
 </div>
 
+{% if o["explanation"] %}
+<div class="story-explanation">
+  <p>{{ o["explanation"] }}</p>
+</div>
+{% endif %}
+
 {% if o["story"] %}
 <ol class="story-steps">
   {% for s in o["story"] %}
