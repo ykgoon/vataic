@@ -137,6 +137,7 @@ def view():
 
 @bp.post("/settings")
 def save():
+    from app.db import get_conn
     k, v = request.form.get("key", ""), request.form.get("value", "")
     if k and "api_key" not in k and "secret" not in k:
         with get_conn() as c:
