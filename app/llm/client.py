@@ -1,8 +1,10 @@
 """LLM gateway: provider-agnostic OpenAI-compatible client, routing, cache, retry, validators."""
-import hashlib, json, time
+import hashlib, json, logging, re, time
 import requests
 from pydantic import BaseModel, ValidationError
 from app.db import get_conn
+
+logger = logging.getLogger(__name__)
 
 # Per-process circuit breaker: after this many consecutive provider failures
 # without a success, callers should treat the provider as down and skip straight
@@ -93,6 +95,37 @@ class LLMClient:
         raw = json.dumps({"p": phase, "q": payload, "m": model, "s": seed}, sort_keys=True)
         return hashlib.sha256(raw.encode()).hexdigest()[:32]
 
+    @staticmethod
+    def _extract_json(text: str) -> dict:
+        """Parse model output robustly.
+
+        OpenAI-compatible providers fronting local agent models routinely wrap
+        JSON in markdown fences (```json ... ```) or add prose around it.
+        json.loads on the raw content then raises, every retry repeats the
+        failure, and the whole job silently degrades to heuristic fallbacks
+        even though the provider answered correctly.
+        """
+        if not isinstance(text, str) or not text.strip():
+            raise ValueError("empty model content")
+        s = text.strip()
+        try:
+            return json.loads(s)
+        except Exception:
+            pass
+        m = re.search(r"```(?:json)?\s*(.*?)\s*```", s, re.DOTALL)
+        if m:
+            try:
+                return json.loads(m.group(1))
+            except Exception:
+                pass
+        i, j = s.find("{"), s.rfind("}")
+        if i != -1 and j > i:
+            try:
+                return json.loads(s[i:j + 1])
+            except Exception:
+                pass
+        raise ValueError(f"no JSON object in model content ({len(s)} chars)")
+
     def _headers(self) -> dict:
         h = {"Content-Type": "application/json"}
         if self.api_key: h["Authorization"] = f"Bearer {self.api_key}"
@@ -116,20 +149,28 @@ class LLMClient:
                 _BREAK_TS["opened_at"] = time.time()  # extend window; result updates below
             else:
                 raise RuntimeError("LLM provider circuit open (recent failures)")
-        # retry with exponential backoff (5.4)
+        # retry with exponential backoff (5.4). The read timeout escalates per
+        # attempt: slow agent-gateway providers regularly take 2-3x the base
+        # timeout on individual requests and still succeed eventually — a flat
+        # timeout turned every attempt into a read timeout and silently
+        # degraded whole jobs to heuristic mode with zero recorded calls.
         last = None
         for attempt in range(self.max_attempts):
+            read_to = min(int(self.timeout_s) * (attempt + 1), 600)
             try:
                 resp = requests.post(f"{self.base_url}/chat/completions",
                     headers=self._headers(),
                     json={"model": mdl, "messages": messages, "response_format": {"type": "json_object"}},
-                    timeout=(min(10, self.timeout_s), self.timeout_s))
+                    timeout=(min(10, self.timeout_s), read_to))
                 if resp.status_code in (429,) or resp.status_code >= 500:
-                    raise RuntimeError(f"transient {resp.status_code}")
+                    err = RuntimeError(f"transient {resp.status_code}")
+                    if resp.status_code == 429:
+                        err.response = resp
+                    raise err
                 resp.raise_for_status()
                 data = resp.json()
-                text = data["choices"][0]["message"]["content"]
-                parsed = json.loads(text)
+                text = (data["choices"][0]["message"] or {}).get("content") or ""
+                parsed = self._extract_json(text)
                 _record_success()
                 usage = data.get("usage") or {}
                 try:
@@ -153,8 +194,25 @@ class LLMClient:
                 return {"json": parsed, "cache_hit": False, "key": key}
             except Exception as e:
                 last = e
-                _record_failure()
-                time.sleep(self.backoff * (2 ** attempt))
+                logger.warning("LLM %s attempt %d/%d failed (model=%s): %s",
+                               phase, attempt + 1, self.max_attempts, mdl, e)
+                # Rate limiting needs a different cadence than transient
+                # errors: a shared agent gateway can stay at its concurrency
+                # cap for minutes, so back off long enough to actually catch
+                # a free slot instead of burning all attempts in ~20s.
+                ra = getattr(getattr(e, "response", None), "headers", {}).get("Retry-After") if type(e).__name__ == "HTTPError" else None
+                if "429" in str(e):
+                    try:
+                        wait = float(ra) if ra else 0.0
+                    except (TypeError, ValueError):
+                        wait = 0.0
+                    time.sleep(max(wait, 20, self.backoff * (2 ** attempt)))
+                else:
+                    time.sleep(self.backoff * (2 ** attempt))
+        # One failed chat() call counts once against the breaker. Counting
+        # every retry attempt meant a single bad call (4 timed-out attempts)
+        # opened the breaker and degraded the rest of the job to heuristics.
+        _record_failure()
         raise RuntimeError(f"LLM call failed after {self.max_attempts}: {last}")
 
 # ---------- role routing (5.2) ----------

@@ -22,7 +22,7 @@ def llm_candidates(premise: str, scope="macro", db_path=None) -> list[dict] | No
     try:
         from app.llm.client import LLMClient, model_for_phase
         cap = settings.factor_max_personal if scope == "personal" else settings.factor_max_macro
-        out = LLMClient(db_path=db_path).chat("factors", "factors", [
+        out = LLMClient(db_path=db_path).chat(job_id or "factors", "factors", [
             {"role": "system", "content":
              "Given a scenario premise, select the consequential factors that determine "
              "how this specific premise unfolds. Respond ONLY with JSON of shape: "

@@ -1,5 +1,5 @@
 """Scenario intake: parse premise, ambiguity defaults, reality modes, crisis gate."""
-import json, re
+import json, logging, re
 from app.db import get_conn
 from app.jobs.repositories import idem_key, idem_get, idem_put
 
@@ -46,7 +46,11 @@ def parse_scenario(job_id: str, premise: str, scope="macro", reality_mode="groun
             out = LLMClient(db_path=db_path).chat(job_id, "parse", [
                 {"role": "system", "content": "Parse premise into JSON: premise_type, axioms, entities, systems, reality_mode, horizon."},
                 {"role": "user", "content": premise}], model=model_for_phase("parse"))["json"]
-        except Exception:
+        except Exception as e:
+            # Real job prose depends on this call; never degrade silently —
+            # log so heuristic-mode outcomes are attributable to a cause.
+            logging.getLogger(__name__).warning(
+                "parse phase LLM call failed (%s); falling back to heuristic parse", e)
             out = heuristic_parse(premise, scope, reality_mode, horizon)
     else:
         out = heuristic_parse(premise, scope, reality_mode, horizon)
