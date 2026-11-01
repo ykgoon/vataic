@@ -404,7 +404,9 @@ def test_chat_panel_roundtrip_failure_and_clear():
                       (jid,)).fetchone()[0]
     assert n == 0
 
-    # Success path: stub the provider probe and the LLM reply.
+    # Success path: stub the provider probe and the LLM reply; the reply
+    # fills asynchronously (background thread), so wait for it to land.
+    import time as _t
     import app.llm.prepared as prep
     import app.routes.chat as chatmod
     orig_reply = chatmod._reply
@@ -413,21 +415,50 @@ def test_chat_panel_roundtrip_failure_and_clear():
     prep.provider_status = lambda db_path=None: {"ok": True, "detail": "stub", "model": "m"}
     try:
         r = cl.post(f"/scenarios/{jid}/chat", data={"message": "why?"})
+        body = r.get_data(as_text=True)
+        # Fast stubbed replies may land before the response renders: the
+        # immediate panel shows either the pending bubble or the final reply.
+        assert "chat-thinking" in body or "Because three factors moved together." in body
+        rows = []
+        for _ in range(50):  # up to ~5s for the background thread
+            _t.sleep(0.1)
+            with get_conn(DB) as c:
+                rows = [dict(x) for x in c.execute(
+                    "SELECT role, content, error FROM scenario_chat_messages WHERE scenario_id=? ORDER BY id",
+                    (jid,))]
+            if rows and rows[-1]["content"]:
+                break
+        assert [(m["role"], m["content"]) for m in rows] == \
+            [("user", "why?"), ("assistant", "Because three factors moved together.")]
     finally:
         chatmod._reply = orig_reply
         prep.provider_status = orig_status
-    body = r.get_data(as_text=True)
-    assert "Because three factors moved together." in body
-    with get_conn(DB) as c:
-        rows = [dict(x) for x in c.execute(
-            "SELECT role, content FROM scenario_chat_messages WHERE scenario_id=? ORDER BY id",
-            (jid,))]
-    assert [(m["role"], m["content"]) for m in rows] == \
-        [("user", "why?"), ("assistant", "Because three factors moved together.")]
 
     # History re-renders on GET; clear empties it.
     r = cl.get(f"/scenarios/{jid}/chat")
     assert "Because three factors moved together." in r.get_data(as_text=True)
+
+    # Mid-generation failure: reply slot gets the error, no invented content.
+    def _boom(jid2, q):
+        raise RuntimeError("provider exploded")
+    chatmod._reply = _boom
+    prep.provider_status = lambda db_path=None: {"ok": True, "detail": "stub", "model": "m"}
+    try:
+        cl.post(f"/scenarios/{jid}/chat", data={"message": "again"})
+        rows = []
+        for _ in range(50):
+            _t.sleep(0.1)
+            with get_conn(DB) as c:
+                rows = [dict(x) for x in c.execute(
+                    "SELECT role, content, error FROM scenario_chat_messages WHERE scenario_id=? ORDER BY id",
+                    (jid,))]
+            if rows and rows[-1]["error"]:
+                break
+        assert rows[-1]["error"] and "provider exploded" in rows[-1]["error"]
+        assert rows[-1]["content"] == ""
+    finally:
+        chatmod._reply = orig_reply
+        prep.provider_status = orig_status
     cl.post(f"/scenarios/{jid}/chat/clear")
     with get_conn(DB) as c:
         n = c.execute("SELECT COUNT(*) FROM scenario_chat_messages WHERE scenario_id=?",

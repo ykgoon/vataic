@@ -1,4 +1,4 @@
-<div id="chat-panel" class="chat-panel">
+<div id="chat-panel" class="chat-panel"{% if pending %} hx-get="/scenarios/{{ scenario_id }}/chat" hx-trigger="every 2s" hx-target="#chat-panel" hx-swap="outerHTML"{% endif %}>
   <div class="chat-header">
     <h2>Ask about this scenario</h2>
     {% if messages %}
@@ -11,10 +11,27 @@
   {% if error %}<div class="chat-error">{{ error }}</div>{% endif %}
   <div class="chat-history">
     {% for m in messages %}
-    <div class="chat-message chat-{{ m.role }}">
-      <span class="chat-role">{{ "You" if m.role == "user" else "Vataic" }}</span>
-      <p>{{ m.content }}</p>
-    </div>
+      {% if m.role == "user" %}
+      <div class="chat-message chat-user">
+        <span class="chat-role">You</span>
+        <p>{{ m.content }}</p>
+      </div>
+      {% elif m.error %}
+      <div class="chat-message chat-assistant chat-failed">
+        <span class="chat-role">Vataic</span>
+        <p class="chat-error-text">{{ m.error }}</p>
+      </div>
+      {% elif not m.content %}
+      <div class="chat-message chat-assistant chat-thinking">
+        <span class="chat-role">Vataic</span>
+        <p class="thinking"><span class="dot"></span><span class="dot"></span><span class="dot"></span></p>
+      </div>
+      {% else %}
+      <div class="chat-message chat-assistant">
+        <span class="chat-role">Vataic</span>
+        <p>{{ m.content }}</p>
+      </div>
+      {% endif %}
     {% else %}
     <p class="chat-empty muted">Ask anything about this scenario &mdash; outcomes, factors, branches, or what the numbers mean.</p>
     {% endfor %}
