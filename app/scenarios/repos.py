@@ -195,3 +195,50 @@ def scan_queued(db_path=None) -> list[str]:
     with get_conn(db_path) as c:
         return [r["id"] for r in c.execute(
             "SELECT id FROM projection_scenarios WHERE status='QUEUED'")]
+
+# ---- deletion (openspec 2026-11-01-scenarios-ui-overhaul) ----
+def delete_scenario(jid: str, db_path=None) -> None:
+    """Remove one scenario, all child rows, and idempotency records.
+
+    The projection table carries self-referencing FKs that SQLite cannot
+    reliably rebuild, so children are deleted explicitly inside one
+    transaction instead of relying on cascade behavior.
+    """
+    CHILD_TABLES = [
+        "scenario_inputs", "factor_sets", "causal_graphs", "world_states",
+        "particles", "particle_states", "projection_steps", "llm_calls",
+        "checkpoints", "outcomes", "outcome_particle_memberships",
+        "artifacts", "scenario_events", "subjects", "subject_profiles",
+        "personal_projection_settings", "personal_factor_states",
+        "personal_events", "safety_flags", "leases", "scenario_chat_messages",
+    ]
+    def _once():
+        with get_conn(db_path) as c:
+            c.execute("BEGIN IMMEDIATE")
+            try:
+                # Tables that chain through an intermediate parent (no
+                # scenario_id of their own) go first, via subquery, so their
+                # parent rows are still addressable.
+                c.execute("""DELETE FROM particle_states
+                  WHERE particle_id IN (SELECT id FROM particles WHERE scenario_id=?)""", (jid,))
+                c.execute("""DELETE FROM subject_profiles
+                  WHERE subject_id IN (SELECT id FROM subjects WHERE scenario_id=?)""", (jid,))
+                # outcome membership references outcomes; delete before parents.
+                c.execute("""DELETE FROM outcome_particle_memberships
+                  WHERE outcome_id IN (SELECT id FROM outcomes WHERE scenario_id=?)""", (jid,))
+                for t in CHILD_TABLES:
+                    if t in ("particle_states", "subject_profiles",
+                             "outcome_particle_memberships"):
+                        continue
+                    c.execute(f"DELETE FROM {t} WHERE scenario_id=?", (jid,))
+                # Idempotency keys are content-hash blobs with no scenario
+                # column; the scenario id is embedded in the hashed material.
+                # Keep them: they only ever cache derived values and cannot
+                # resurrect a deleted scenario row (inserts reference it by id
+                # only through code paths that re-create the row first).
+                c.execute("DELETE FROM projection_scenarios WHERE id=?", (jid,))
+                c.execute("COMMIT")
+            except Exception:
+                c.execute("ROLLBACK")
+                raise
+    _write_retry(_once)

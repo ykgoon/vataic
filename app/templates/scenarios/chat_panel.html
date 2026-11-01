@@ -1,0 +1,27 @@
+<div id="chat-panel" class="chat-panel">
+  <div class="chat-header">
+    <h2>Ask about this scenario</h2>
+    {% if messages %}
+    <button hx-post="/scenarios/{{ scenario_id }}/chat/clear"
+            hx-target="#chat-panel" hx-swap="outerHTML"
+            hx-confirm="Clear the conversation?"
+            class="btn btn-sm btn-secondary">Clear</button>
+    {% endif %}
+  </div>
+  {% if error %}<div class="chat-error">{{ error }}</div>{% endif %}
+  <div class="chat-history">
+    {% for m in messages %}
+    <div class="chat-message chat-{{ m.role }}">
+      <span class="chat-role">{{ "You" if m.role == "user" else "Vataic" }}</span>
+      <p>{{ m.content }}</p>
+    </div>
+    {% else %}
+    <p class="chat-empty muted">Ask anything about this scenario &mdash; outcomes, factors, branches, or what the numbers mean.</p>
+    {% endfor %}
+  </div>
+  <form class="chat-input" hx-post="/scenarios/{{ scenario_id }}/chat"
+        hx-target="#chat-panel" hx-swap="outerHTML">
+    <input type="text" name="message" placeholder="Ask about this scenario&hellip;" autocomplete="off" required>
+    <button type="submit" class="btn btn-primary">Send</button>
+  </form>
+</div>

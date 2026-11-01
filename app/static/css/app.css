@@ -1127,3 +1127,21 @@ textarea {
   .split-rows .bar-label { width: 120px; }
   .split-rows .bar-pct { width: auto; }
 }
+
+/* --- Scenario chat panel --- */
+.chat-panel {
+  margin-top: 24px; padding: 16px 20px;
+  background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px;
+}
+.chat-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.chat-header h2 { margin: 0; font-size: 1.05rem; }
+.chat-history { display: flex; flex-direction: column; gap: 10px; max-height: 420px; overflow-y: auto; padding: 4px 2px; }
+.chat-message { padding: 8px 12px; border-radius: 10px; max-width: 85%; }
+.chat-message p { margin: 2px 0 0; white-space: pre-wrap; }
+.chat-user { align-self: flex-end; background: #dbeafe; border: 1px solid #bfdbfe; }
+.chat-assistant { align-self: flex-start; background: #ffffff; border: 1px solid #e2e8f0; }
+.chat-role { font-size: 0.72rem; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; }
+.chat-empty { margin: 8px 4px; }
+.chat-error { background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; border-radius: 8px; padding: 8px 12px; margin: 8px 0; }
+.chat-input { display: flex; gap: 8px; margin-top: 12px; }
+.chat-input input[type="text"] { flex: 1; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.95rem; }

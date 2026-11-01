@@ -1,0 +1,16 @@
+# Keep build context lean and dependency layers cacheable.
+.git
+.venv
+venv
+__pycache__
+**/__pycache__
+*.py[cod]
+.pytest_cache
+data/
+screens/
+*.db
+*.db-wal
+*.db-shm
+.env
+.env.*
+!.env.example

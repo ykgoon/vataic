@@ -113,6 +113,11 @@
     {% if scenario["status"] == 'FAILED' %}
     <button hx-post="/scenarios/{{ scenario["id"] }}/retry" hx-target="#status-{{ scenario["id"] }}" hx-swap="innerHTML" class="btn btn-secondary">Retry</button>
     {% endif %}
+    {% if scenario["status"] in ['COMPLETED', 'FAILED', 'CANCELLED'] %}
+    <button hx-post="/scenarios/{{ scenario["id"] }}/delete?redirect=1" hx-target="#chat-panel" hx-swap="outerHTML" hx-confirm="Delete this scenario and all its data? This cannot be undone." class="btn btn-danger">Delete</button>
+    {% endif %}
   </div>
+
+  {% with scenario_id = scenario["id"] %}{% include "scenarios/chat_panel.html" %}{% endwith %}
 </div>
 {% endblock %}

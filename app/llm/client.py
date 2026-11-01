@@ -216,7 +216,7 @@ class LLMClient:
         raise RuntimeError(f"LLM call failed after {self.max_attempts}: {last}")
 
 # ---------- role routing (5.2) ----------
-ROLE_PHASES = {"strong": {"causal", "step", "explanation", "parse"},
+ROLE_PHASES = {"strong": {"causal", "step", "explanation", "parse", "chat"},
                "cheap": {"epoch", "cluster"},
                "embedding": set()}
 

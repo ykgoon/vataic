@@ -18,6 +18,11 @@ def act_parse(inp: dict) -> dict:
     from app.db import get_conn
     with get_conn() as c:
         c.execute("UPDATE projection_scenarios SET current_phase='parse' WHERE id=?", (inp["scenario_id"],))
+    # Run-readiness gate (openspec 2026-11-01-scenarios-ui-overhaul): a no-LLM
+    # run yields only template prose, which is not a usable projection. Fail
+    # fast with a retryable error unless VATAIC_ALLOW_HEURISTIC is set.
+    from app.llm.prepared import require_provider
+    require_provider(inp["scenario_id"])
     from app.steps.intake import parse_scenario
     from app.scenarios.repos import idem_key, idem_get
     key = idem_key(inp["scenario_id"], "parse_scenario", 0, "", inp.get("premise", "")[:32])

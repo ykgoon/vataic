@@ -17,6 +17,7 @@ def _db(monkeypatch):
     monkeypatch.setenv("LLM_REQUEST_TIMEOUT_S", "1")
     monkeypatch.setenv("LLM_MAX_ATTEMPTS", "1")
     monkeypatch.setenv("LLM_BACKOFF_BASE_S", "0.05")
+    monkeypatch.setenv("VATAIC_ALLOW_HEURISTIC", "1")
     import importlib
     import app.config as cfg
     importlib.reload(cfg)
@@ -303,3 +304,132 @@ def test_settings_seed_rows_lose_to_real_env():
     seeded2 = dict(DEFAULTS); seeded2["llm.base_url"] = "http://custom:9/v1"
     eff2 = _effective(seeded2)
     assert eff2["llm.base_url"] == "http://custom:9/v1"
+
+def test_readiness_gate_fails_scenario_without_provider(monkeypatch):
+    """No hatch + dead provider: pickup must fail fast with a clear error."""
+    monkeypatch.delenv("VATAIC_ALLOW_HEURISTIC", raising=False)
+    import pytest
+    from worker.workflows import act_parse
+    from app.scenarios.repos import create_scenario, transition
+    jid = create_scenario("gate premise", db_path=DB)
+    transition(jid, "INITIALIZING", db_path=DB)
+    transition(jid, "RUNNING", db_path=DB)
+    with pytest.raises(RuntimeError) as ei:
+        act_parse({"scenario_id": jid, "premise": "gate premise"})
+    assert "LLM provider unavailable" in str(ei.value)
+
+
+def test_readiness_gate_passes_with_ready_provider(monkeypatch):
+    """A reachable provider serving the configured models lets pickup proceed."""
+    from worker.workflows import act_parse
+    from app.scenarios.repos import create_scenario, transition, get_scenario
+    import app.llm.prepared as prep
+
+    class FakeResp:
+        status_code = 200
+        def json(self):
+            return {"data": [{"id": "gpt-4o-mini"}]}
+
+    monkeypatch.setattr(prep.requests, "get", lambda *a, **k: FakeResp())
+    jid = create_scenario("gate ok premise", db_path=DB)
+    transition(jid, "INITIALIZING", db_path=DB)
+    transition(jid, "RUNNING", db_path=DB)
+    # act_parse proceeds into intake (heuristic parse under offline test env,
+    # but the gate itself must not raise).
+    out = act_parse({"scenario_id": jid, "premise": "gate ok premise"})
+    assert out["halted"] is False
+
+
+def test_readiness_gate_hatch_allows_heuristic(monkeypatch):
+    monkeypatch.setenv("VATAIC_ALLOW_HEURISTIC", "1")
+    from worker.workflows import act_parse
+    from app.scenarios.repos import create_scenario, transition
+    jid = create_scenario("gate hatch premise", db_path=DB)
+    transition(jid, "INITIALIZING", db_path=DB)
+    transition(jid, "RUNNING", db_path=DB)
+    out = act_parse({"scenario_id": jid, "premise": "gate hatch premise"})
+    assert out["halted"] is False
+
+
+def test_delete_scenario_route_and_repos():
+    from app import create_app
+    from app.scenarios.repos import create_scenario, get_scenario, delete_scenario, transition
+    from app.store import write_artifact
+    from app.steps.factors import select_factors
+    from app.db import get_conn
+    app = create_app({"TESTING": True})
+    cl = app.test_client()
+    jid = create_scenario("delete me", db_path=DB)
+    select_factors(jid, [{"id": "f0", "name": "F Zero", "current": 50.0}], "macro", DB)
+    write_artifact(jid, "report", {"a": 1}, DB)
+    import os
+    from pathlib import Path
+    art_dir = Path(os.environ["ARTIFACT_DIR"]) / jid
+    assert art_dir.exists()
+
+    # Non-terminal states are blocked.
+    r = cl.post(f"/scenarios/{jid}/delete")
+    assert b"delete blocked" in r.get_data()
+    assert get_scenario(jid, DB) is not None
+
+    transition(jid, "CANCELLED", db_path=DB)
+    r = cl.post(f"/scenarios/{jid}/delete")
+    assert r.status_code == 200
+    assert get_scenario(jid, DB) is None
+    assert not art_dir.exists()
+    with get_conn(DB) as c:
+        for t in ("factor_sets", "scenario_events", "artifacts"):
+            n = c.execute(f"SELECT COUNT(*) FROM {t} WHERE scenario_id=?", (jid,)).fetchone()[0]
+            assert n == 0, t
+
+
+def test_chat_panel_roundtrip_failure_and_clear():
+    from app import create_app
+    from app.scenarios.repos import create_scenario
+    from app.db import get_conn
+    app = create_app({"TESTING": True})
+    cl = app.test_client()
+    jid = create_scenario("chat premise", db_path=DB)
+
+    # Detail page includes the panel.
+    r = cl.get(f"/scenarios/{jid}")
+    assert r.status_code == 200 and b"chat-panel" in r.get_data()
+
+    # Provider down (test env): error bubble, nothing stored.
+    r = cl.post(f"/scenarios/{jid}/chat", data={"message": "why?"})
+    body = r.get_data(as_text=True)
+    assert "chat-error" in body and "provider unavailable" in body
+    with get_conn(DB) as c:
+        n = c.execute("SELECT COUNT(*) FROM scenario_chat_messages WHERE scenario_id=?",
+                      (jid,)).fetchone()[0]
+    assert n == 0
+
+    # Success path: stub the provider probe and the LLM reply.
+    import app.llm.prepared as prep
+    import app.routes.chat as chatmod
+    orig_reply = chatmod._reply
+    orig_status = prep.provider_status
+    chatmod._reply = lambda jid2, q: "Because three factors moved together."
+    prep.provider_status = lambda db_path=None: {"ok": True, "detail": "stub", "model": "m"}
+    try:
+        r = cl.post(f"/scenarios/{jid}/chat", data={"message": "why?"})
+    finally:
+        chatmod._reply = orig_reply
+        prep.provider_status = orig_status
+    body = r.get_data(as_text=True)
+    assert "Because three factors moved together." in body
+    with get_conn(DB) as c:
+        rows = [dict(x) for x in c.execute(
+            "SELECT role, content FROM scenario_chat_messages WHERE scenario_id=? ORDER BY id",
+            (jid,))]
+    assert [(m["role"], m["content"]) for m in rows] == \
+        [("user", "why?"), ("assistant", "Because three factors moved together.")]
+
+    # History re-renders on GET; clear empties it.
+    r = cl.get(f"/scenarios/{jid}/chat")
+    assert "Because three factors moved together." in r.get_data(as_text=True)
+    cl.post(f"/scenarios/{jid}/chat/clear")
+    with get_conn(DB) as c:
+        n = c.execute("SELECT COUNT(*) FROM scenario_chat_messages WHERE scenario_id=?",
+                      (jid,)).fetchone()[0]
+    assert n == 0

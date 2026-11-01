@@ -29,6 +29,7 @@ def create_app(config_override: dict | None = None) -> Flask:
     for mod, attr in [
         ("app.routes.scenarios", "bp"),
         ("app.routes.results", "bp"),
+        ("app.routes.chat", "bp"),
         ("app.routes.personal", "bp"),
         ("app.routes.settings", "bp"),
     ]:

@@ -21,6 +21,9 @@
     {% if j.status == 'FAILED' %}
     <button hx-post="/scenarios/{{ j.id }}/retry" hx-target="#status-{{ j.id }}" hx-swap="innerHTML" class="btn btn-sm btn-secondary">Retry</button>
     {% endif %}
+    {% if j.status in ['COMPLETED', 'FAILED', 'CANCELLED'] %}
+    <button hx-post="/scenarios/{{ j.id }}/delete" hx-target="closest tr" hx-swap="outerHTML" hx-confirm="Delete this scenario and all its data?" class="btn btn-sm btn-danger">Delete</button>
+    {% endif %}
   </td>
 </tr>
 {% endfor %}

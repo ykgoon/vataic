@@ -192,6 +192,27 @@ def retry(jid):
     return _ctrl(jid, "retry")
 
 
+@bp.post("/scenarios/<jid>/delete")
+def delete(jid):
+    """Delete a terminal scenario: row, children, and on-disk artifacts."""
+    import shutil
+    from app.scenarios.repos import get_scenario, delete_scenario
+    from app.config import settings
+    from pathlib import Path
+    j = get_scenario(jid) or {}
+    if j.get("status") not in ("COMPLETED", "FAILED", "CANCELLED"):
+        return render_template("scenarios/status_badge.html",
+                               status="delete blocked (cancel first)")
+    delete_scenario(jid)
+    shutil.rmtree(Path(settings.artifact_dir) / jid, ignore_errors=True)
+    if request.args.get("redirect") == "1":
+        import flask
+        resp = flask.Response("", status=200)
+        resp.headers["HX-Redirect"] = "/scenarios"
+        return resp
+    return ""  # htmx: remove the row
+
+
 @bp.post("/scenarios/<jid>/re-explain")
 def reexplain(jid):
     """Re-run the explanation phase for a completed scenario whose outcome cards
