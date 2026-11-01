@@ -433,3 +433,21 @@ def test_chat_panel_roundtrip_failure_and_clear():
         n = c.execute("SELECT COUNT(*) FROM scenario_chat_messages WHERE scenario_id=?",
                       (jid,)).fetchone()[0]
     assert n == 0
+
+def test_finalize_zero_llm_gate(monkeypatch):
+    """Finalization must refuse to mark a zero-LLM run COMPLETED (no hatch)."""
+    from worker.workflows import act_finalize
+    from app.scenarios.repos import create_scenario, transition
+    monkeypatch.delenv("VATAIC_ALLOW_HEURISTIC", raising=False)
+    jid = create_scenario("honest finalize", db_path=DB)
+    for st in ("INITIALIZING", "RUNNING", "CLUSTERING", "EXPLAINING"):
+        transition(jid, st, db_path=DB)
+    with pytest.raises(RuntimeError) as ei:
+        act_finalize({"scenario_id": jid})
+    assert "no LLM calls recorded" in str(ei.value)
+    # With the hatch set, finalization proceeds and completes the scenario.
+    monkeypatch.setenv("VATAIC_ALLOW_HEURISTIC", "1")
+    out = act_finalize({"scenario_id": jid})
+    assert "artifact" in out
+    from app.scenarios.repos import get_scenario
+    assert get_scenario(jid, DB)["status"] == "COMPLETED"

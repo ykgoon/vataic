@@ -387,6 +387,18 @@ def act_finalize(inp: dict) -> dict:
     from app.scenarios.repos import transition
     from app.db import get_conn
     jid = inp["scenario_id"]
+    # Honest-completion check (openspec 2026-11-01-scenarios-ui-overhaul):
+    # a scenario that recorded zero real LLM calls produced only template
+    # prose. Presenting that as a COMPLETED projection is worse than failing:
+    # fail with a retryable error unless VATAIC_ALLOW_HEURISTIC is set.
+    from app.llm.usage import scenario_usage_summary
+    from app.llm.prepared import allow_heuristic
+    usage = scenario_usage_summary(jid)
+    if not allow_heuristic() and usage["real_calls"] == 0:
+        raise RuntimeError(
+            "no LLM calls recorded - provider unusable; heuristic prose "
+            "suppressed. Retry when the provider is available (or set "
+            "VATAIC_ALLOW_HEURISTIC to accept template output).")
     with get_conn() as c:
         outs = [dict(r) for r in c.execute("SELECT * FROM outcomes WHERE scenario_id=?", (jid,))]
     art = write_artifact(jid, "report", {"outcomes": outs})
