@@ -2,7 +2,7 @@
 cornerstone rationales (htmx swaps). Implements
 openspec/changes/2026-10-25-futures-output (web-ui delta). The legacy
 timeline tree stays as a debug route; the legacy card page remains as a
-fallback for jobs without a futures view (non-completed)."""
+fallback for scenarios without a futures view (non-completed)."""
 from flask import Blueprint, render_template
 import json
 import html
@@ -50,12 +50,12 @@ def results(jid):
     from app.db import get_conn
     from app.present import repair_legacy_outcomes
     with get_conn() as c:
-        job = c.execute("SELECT id, premise, status FROM projection_jobs WHERE id=?",
+        scenario = c.execute("SELECT id, premise, status FROM projection_scenarios WHERE id=?",
                         (jid,)).fetchone()
-    if not job:
-        return "<p>missing job</p>", 404
-    if job["status"] == "COMPLETED":
-        # Legacy-outcome healing writes; skip for non-completed jobs so the
+    if not scenario:
+        return "<p>missing scenario</p>", 404
+    if scenario["status"] == "COMPLETED":
+        # Legacy-outcome healing writes; skip for non-completed scenarios so the
         # page never queues behind a busy worker's write lock.
         try:
             repair_legacy_outcomes(jid)
@@ -82,7 +82,7 @@ def results(jid):
             pass
         return render_template(
             "results/index.html",
-            job={"id": jid, "premise": job["premise"]},
+            scenario={"id": jid, "premise": scenario["premise"]},
             fv=fv,
             fan_html=fan_html,
             fan_legend=fan_legend,
@@ -92,18 +92,18 @@ def results(jid):
             scope_subtitle=_scope_subtitle(fv.get("scope", "macro")),
             expand_all=expand_all,
         )
-    # Legacy fallback (job not completed / no artifact yet): old card view.
+    # Legacy fallback (scenario not completed / no artifact yet): old card view.
     from app.present import prepare_outcomes
     with get_conn() as c:
-        outs = [dict(r) for r in c.execute("SELECT * FROM outcomes WHERE job_id=?", (jid,))]
+        outs = [dict(r) for r in c.execute("SELECT * FROM outcomes WHERE scenario_id=?", (jid,))]
         particles = [dict(r) for r in c.execute(
-            "SELECT id,parent_id,probability FROM particles WHERE job_id=?", (jid,))]
+            "SELECT id,parent_id,probability FROM particles WHERE scenario_id=?", (jid,))]
         states = [dict(r) for r in c.execute(
             """SELECT ps.step_index, ps.factor_values FROM particle_states ps
-               JOIN particles p ON p.id=ps.particle_id WHERE p.job_id=? LIMIT 50""", (jid,))]
+               JOIN particles p ON p.id=ps.particle_id WHERE p.scenario_id=? LIMIT 50""", (jid,))]
     outcome_rows = prepare_outcomes(outs, jid)
     return render_template("results/legacy.html",
-        job={"id": jid, "premise": job["premise"]},
+        scenario={"id": jid, "premise": scenario["premise"]},
         outcomes=outcome_rows,
         particles=particles,
         states=states)
@@ -242,7 +242,7 @@ def tree(jid):
     from app.db import get_conn
     with get_conn() as c:
         parts = [dict(r) for r in c.execute(
-            "SELECT id,parent_id,probability FROM particles WHERE job_id=?", (jid,))]
+            "SELECT id,parent_id,probability FROM particles WHERE scenario_id=?", (jid,))]
     items = "".join(
         f"<li><span hx-get='/results/{jid}/branch/{p['id']}' hx-target='#bdetail'>"
         f"{p['id']} ({p['probability']:.2f})</span></li>"
@@ -262,12 +262,12 @@ def branch(jid, pid):
 @bp.get("/results/<jid>/trajectories")
 def traj(jid):
     from app.db import get_conn
-    from app.present import factor_names_for_job
-    names = factor_names_for_job(jid)
+    from app.present import factor_names_for_scenario
+    names = factor_names_for_scenario(jid)
     with get_conn() as c:
         rows = [dict(r) for r in c.execute(
             """SELECT ps.step_index, ps.factor_values FROM particle_states ps
-               JOIN particles p ON p.id=ps.particle_id WHERE p.job_id=? LIMIT 50""", (jid,))]
+               JOIN particles p ON p.id=ps.particle_id WHERE p.scenario_id=? LIMIT 50""", (jid,))]
     # One polyline per factor that ever moves, labeled with human names.
     series: dict[str, list[tuple[int, float]]] = {}
     for r in rows:

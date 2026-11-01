@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% block title %}New Job — Vataic{% endblock %}
+{% block title %}New Scenario — Vataic{% endblock %}
 {% block content %}
-<div class="new-job-card">
-  <h1>New Job</h1>
-  <form method="post" action="/jobs/new" class="job-form">
+<div class="new-scenario-card">
+  <h1>New Scenario</h1>
+  <form method="post" action="/scenarios/new" class="scenario-form">
     <div class="form-group">
       <label for="premise">Premise (required)</label>
       <textarea id="premise" name="premise" rows="4" required placeholder="Describe the premise...">{{ premise or '' }}</textarea>

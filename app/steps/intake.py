@@ -1,7 +1,7 @@
 """Scenario intake: parse premise, ambiguity defaults, reality modes, crisis gate."""
 import json, logging, re
 from app.db import get_conn
-from app.jobs.repositories import idem_key, idem_get, idem_put
+from app.scenarios.repos import idem_key, idem_get, idem_put
 
 CRISIS_KEYWORDS = {"suicide", "self-harm", "self harm", "kill myself", "end my life",
                    "abuse", "severe depression", "immediate danger"}
@@ -23,9 +23,9 @@ def heuristic_parse(premise: str, scope: str, reality_mode: str, horizon: str) -
             "systems": ["economy"] if "price" in low or "house" in low else ["general"],
             "reality_mode": reality_mode, "horizon": horizon or DEFAULT_HORIZON}
 
-def parse_scenario(job_id: str, premise: str, scope="macro", reality_mode="grounded",
+def parse_scenario(scenario_id: str, premise: str, scope="macro", reality_mode="grounded",
                    horizon="auto", use_llm: bool = False, db_path=None) -> dict:
-    key = idem_key(job_id, "parse", 0, "", premise[:64])
+    key = idem_key(scenario_id, "parse", 0, "", premise[:64])
     cached = idem_get(key, db_path)
     if cached: return cached
     assumptions = []
@@ -34,8 +34,8 @@ def parse_scenario(job_id: str, premise: str, scope="macro", reality_mode="groun
     crisis = detect_crisis(premise)
     if crisis and scope == "personal":
         with get_conn(db_path) as c:
-            c.execute("INSERT INTO safety_flags(job_id,flagged,reason,resources) VALUES(?,?,?,?)",
-                      (job_id, 1, "crisis-topic detected", SAFETY_RESOURCES))
+            c.execute("INSERT INTO safety_flags(scenario_id,flagged,reason,resources) VALUES(?,?,?,?)",
+                      (scenario_id, 1, "crisis-topic detected", SAFETY_RESOURCES))
         result = {"halted": True, "reason": "crisis", "resources": SAFETY_RESOURCES,
                   "assumptions": assumptions}
         idem_put(key, result, db_path)
@@ -43,11 +43,11 @@ def parse_scenario(job_id: str, premise: str, scope="macro", reality_mode="groun
     if use_llm:
         try:
             from app.llm.client import LLMClient, model_for_phase
-            out = LLMClient(db_path=db_path).chat(job_id, "parse", [
+            out = LLMClient(db_path=db_path).chat(scenario_id, "parse", [
                 {"role": "system", "content": "Parse premise into JSON: premise_type, axioms, entities, systems, reality_mode, horizon."},
                 {"role": "user", "content": premise}], model=model_for_phase("parse"))["json"]
         except Exception as e:
-            # Real job prose depends on this call; never degrade silently —
+            # Real scenario prose depends on this call; never degrade silently —
             # log so heuristic-mode outcomes are attributable to a cause.
             logging.getLogger(__name__).warning(
                 "parse phase LLM call failed (%s); falling back to heuristic parse", e)
@@ -57,9 +57,9 @@ def parse_scenario(job_id: str, premise: str, scope="macro", reality_mode="groun
     out.setdefault("assumptions", assumptions)
     out["halted"] = False
     with get_conn(db_path) as c:
-        c.execute("""INSERT OR REPLACE INTO scenario_inputs(job_id,premise,premise_type,axioms,
+        c.execute("""INSERT OR REPLACE INTO scenario_inputs(scenario_id,premise,premise_type,axioms,
           entities,systems,reality_mode,horizon,assumptions) VALUES(?,?,?,?,?,?,?,?,?)""",
-          (job_id, premise, out.get("premise_type", "event"), json.dumps(out.get("axioms", [])),
+          (scenario_id, premise, out.get("premise_type", "event"), json.dumps(out.get("axioms", [])),
            json.dumps(out.get("entities", [])), json.dumps(out.get("systems", [])),
            out.get("reality_mode", reality_mode), out.get("horizon", horizon),
            json.dumps(out.get("assumptions", []))))

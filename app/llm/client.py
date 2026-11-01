@@ -102,7 +102,7 @@ class LLMClient:
         OpenAI-compatible providers fronting local agent models routinely wrap
         JSON in markdown fences (```json ... ```) or add prose around it.
         json.loads on the raw content then raises, every retry repeats the
-        failure, and the whole job silently degrades to heuristic fallbacks
+        failure, and the whole scenario silently degrades to heuristic fallbacks
         even though the provider answered correctly.
         """
         if not isinstance(text, str) or not text.strip():
@@ -131,7 +131,7 @@ class LLMClient:
         if self.api_key: h["Authorization"] = f"Bearer {self.api_key}"
         return h
 
-    def chat(self, job_id: str, phase: str, messages: list[dict], model: str = "",
+    def chat(self, scenario_id: str, phase: str, messages: list[dict], model: str = "",
              seed: int = 0, step: int = 0, particle: str = "") -> dict:
         """Cached + retried chat-completions call. Returns {'json':..., 'cache_hit':bool}."""
         mdl = model or self.model
@@ -153,7 +153,7 @@ class LLMClient:
         # attempt: slow agent-gateway providers regularly take 2-3x the base
         # timeout on individual requests and still succeed eventually — a flat
         # timeout turned every attempt into a read timeout and silently
-        # degraded whole jobs to heuristic mode with zero recorded calls.
+        # degraded whole scenarios to heuristic mode with zero recorded calls.
         last = None
         for attempt in range(self.max_attempts):
             read_to = min(int(self.timeout_s) * (attempt + 1), 600)
@@ -175,7 +175,7 @@ class LLMClient:
                 usage = data.get("usage") or {}
                 try:
                     from app.llm.usage import record_llm_usage
-                    record_llm_usage(job_id, phase, usage, mdl, db_path=self.db_path)
+                    record_llm_usage(scenario_id, phase, usage, mdl, db_path=self.db_path)
                 except Exception:
                     pass  # usage accounting must never break the engine
                 V = VALIDATORS.get(phase)
@@ -188,9 +188,9 @@ class LLMClient:
                         time.sleep(self.backoff * (2 ** attempt))
                         continue
                 with get_conn(self.db_path) as c:
-                    c.execute("""INSERT OR IGNORE INTO llm_calls(job_id,cache_key,phase,step_index,
+                    c.execute("""INSERT OR IGNORE INTO llm_calls(scenario_id,cache_key,phase,step_index,
                       particle_id,model,request,response,cache_hit) VALUES(?,?,?,?,?,?,?,?,0)""",
-                      (job_id, key, phase, step, particle, mdl, json.dumps(payload), json.dumps(parsed)))
+                      (scenario_id, key, phase, step, particle, mdl, json.dumps(payload), json.dumps(parsed)))
                 return {"json": parsed, "cache_hit": False, "key": key}
             except Exception as e:
                 last = e
@@ -211,7 +211,7 @@ class LLMClient:
                     time.sleep(self.backoff * (2 ** attempt))
         # One failed chat() call counts once against the breaker. Counting
         # every retry attempt meant a single bad call (4 timed-out attempts)
-        # opened the breaker and degraded the rest of the job to heuristics.
+        # opened the breaker and degraded the rest of the scenario to heuristics.
         _record_failure()
         raise RuntimeError(f"LLM call failed after {self.max_attempts}: {last}")
 

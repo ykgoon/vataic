@@ -10,7 +10,7 @@ output does not deliver that promise legibly:
   35 means "falling from 50" or "recovering from 20".
 - The timeline tree page is an `<ol>` of particle hashes — a debug view of the particle
   store promoted to a user-facing page, with zero informational value for an end user.
-- The job detail page is pipeline telemetry (budget bars, LLM call counters) — useful for
+- The scenario detail page is pipeline telemetry (budget bars, LLM call counters) — useful for
   operators, not for the person asking "what could happen?"
 
 All the raw material for a legible output already exists in the database: per-step factor
@@ -38,13 +38,13 @@ overview) and `screens/mock2.png` (futures map + story).
 - Make every **cornerstone** — each branch point on the map and each pivotal step in a
   path story — click-to-expand with the **rationale** behind it: causal chain, factor
   deltas at that point, and assumptions the continuation depends on. Rationales come from
-  stored data; deterministic when the job ran without LLM narrative.
-- Persist a **versioned futures-view artifact** at job completion (per-outcome aggregate
+  stored data; deterministic when the scenario ran without LLM narrative.
+- Persist a **versioned futures-view artifact** at scenario completion (per-outcome aggregate
   trajectories, member lists, end-state deltas, branch points) so the page never
-  re-aggregates 27×40 particle states per request, with lazy healing for legacy jobs.
+  re-aggregates 27×40 particle states per request, with lazy healing for legacy scenarios.
 - Phrase outcomes and stories **scope-aware**: personal scope addresses the subject
   ("you"), macro scope describes the system in third person.
-- Disclose **heuristic mode** (jobs that completed with zero LLM calls) so template-built
+- Disclose **heuristic mode** (scenarios that completed with zero LLM calls) so template-built
   narrative is not mistaken for LLM-written analysis.
 
 ## Capabilities
@@ -71,9 +71,9 @@ overview) and `screens/mock2.png` (futures map + story).
 - **Frontend**: `app/templates/results/*` and result routes reworked; new server-rendered
   SVG builders (fan chart, futures map); static CSS additions. No JS framework, no client
   chart library — htmx + native `<details>` as per the current architecture.
-- **Legacy data**: completed jobs predating the artifact are healed lazily on first view
+- **Legacy data**: completed scenarios predating the artifact are healed lazily on first view
   (same pattern as the existing legacy-outcome repair).
 - **Removed from primary nav**: timeline tree link (route kept at `/results/<jid>/tree`
   as a debug view).
-- **Non-goals**: multi-job comparison views; drag/zoom map interactivity; client-side
+- **Non-goals**: multi-scenario comparison views; drag/zoom map interactivity; client-side
   rendering frameworks; any change to the projection engine or clustering itself.

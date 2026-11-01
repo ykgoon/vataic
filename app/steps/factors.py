@@ -2,7 +2,7 @@
 import json, math, itertools
 from app.config import settings
 from app.db import get_conn
-from app.jobs.repositories import idem_key, idem_get, idem_put
+from app.scenarios.repos import idem_key, idem_get, idem_put
 
 IMPACT_SURFACES = ["physical_environment","biology","population","resources","economy",
  "governance","security","technology","information","culture","psychology","institutions",
@@ -14,7 +14,7 @@ PERSONAL_CATS = ["financial_resilience","income_trajectory","skill_development",
 def importance(direct: float, cascade: float, uncert: float, policy: float, obs: float) -> float:
     return 0.35*direct + 0.25*cascade + 0.15*uncert + 0.15*policy + 0.10*obs
 
-def llm_candidates(premise: str, scope="macro", db_path=None) -> list[dict] | None:
+def llm_candidates(scenario_id: str, premise: str, scope="macro", db_path=None) -> list[dict] | None:
     """Premise-specific factor candidates via the LLM (scenario-intake spec:
     factors drawn from whatever impact surfaces apply to this premise).
     Returns None when the LLM is unavailable so the caller falls back to the
@@ -22,7 +22,7 @@ def llm_candidates(premise: str, scope="macro", db_path=None) -> list[dict] | No
     try:
         from app.llm.client import LLMClient, model_for_phase
         cap = settings.factor_max_personal if scope == "personal" else settings.factor_max_macro
-        out = LLMClient(db_path=db_path).chat(job_id or "factors", "factors", [
+        out = LLMClient(db_path=db_path).chat(scenario_id, "factors", [
             {"role": "system", "content":
              "Given a scenario premise, select the consequential factors that determine "
              "how this specific premise unfolds. Respond ONLY with JSON of shape: "
@@ -51,7 +51,7 @@ def llm_candidates(premise: str, scope="macro", db_path=None) -> list[dict] | No
         return None
 
 
-def select_factors(job_id: str, candidates: list[dict], scope="macro", db_path=None) -> dict:
+def select_factors(scenario_id: str, candidates: list[dict], scope="macro", db_path=None) -> dict:
     from app.config import settings
     cap = settings.factor_max_personal if scope == "personal" else settings.factor_max_macro
     scored = sorted(candidates, key=lambda f: f.get("importance", 0), reverse=True)
@@ -59,8 +59,8 @@ def select_factors(job_id: str, candidates: list[dict], scope="macro", db_path=N
     result = {"factors": kept, "discarded": rest,
               "watchlist": [f.get("name", "") for f in rest[:5]]}
     with get_conn(db_path) as c:
-        c.execute("""INSERT INTO factor_sets(job_id,factors,discarded,watchlist)
-          VALUES(?,?,?,?)""", (job_id, json.dumps(kept), json.dumps(rest),
+        c.execute("""INSERT INTO factor_sets(scenario_id,factors,discarded,watchlist)
+          VALUES(?,?,?,?)""", (scenario_id, json.dumps(kept), json.dumps(rest),
                                 json.dumps(result["watchlist"])))
     return result
 
@@ -134,14 +134,14 @@ def _default_edges(factor_ids: list) -> list[dict]:
     return edges
 
 
-def llm_causal_edges(job_id: str, premise: str, factors: list[dict],
+def llm_causal_edges(scenario_id: str, premise: str, factors: list[dict],
                      db_path=None) -> list[dict] | None:
     """LLM-proposed causal edges over the selected factors. Returns None when
     the LLM is unavailable so the caller falls back to _default_edges."""
     try:
         from app.llm.client import LLMClient, model_for_phase
         flines = "\n".join(f"- {f['id']}: {f.get('name', f['id'])}" for f in factors)
-        out = LLMClient(db_path=db_path).chat(job_id, "causal", [
+        out = LLMClient(db_path=db_path).chat(scenario_id, "causal", [
             {"role": "system", "content":
              "Given a scenario premise and its factors, propose the causal edges between "
              "factors that drive how the premise unfolds. Respond ONLY with JSON of shape: "
@@ -158,7 +158,7 @@ def llm_causal_edges(job_id: str, premise: str, factors: list[dict],
         return None
 
 
-def build_causal_graph(job_id: str, factors: list[dict], proposed: list[dict] | None = None,
+def build_causal_graph(scenario_id: str, factors: list[dict], proposed: list[dict] | None = None,
                        db_path=None) -> dict:
     ids = {f["id"] for f in factors}
     edges, failures = [], []
@@ -172,8 +172,8 @@ def build_causal_graph(job_id: str, factors: list[dict], proposed: list[dict] | 
     # critic: flag self-contradictory cycles (same pair opposite polarity, no condition change)
     flagged = has_cycle(edges)
     with get_conn(db_path) as c:
-        c.execute("INSERT INTO causal_graphs(job_id,nodes,edges) VALUES(?,?,?)",
-                  (job_id, json.dumps([f["id"] for f in factors]), json.dumps(edges)))
+        c.execute("INSERT INTO causal_graphs(scenario_id,nodes,edges) VALUES(?,?,?)",
+                  (scenario_id, json.dumps([f["id"] for f in factors]), json.dumps(edges)))
     return {"edges": edges, "failures": failures, "cycle_flagged": flagged}
 
 def critic_revise(graph: dict) -> dict:
@@ -191,9 +191,9 @@ def critic_revise(graph: dict) -> dict:
     graph["edges"] = list(seen.values())
     return graph
 
-def init_world_state(job_id: str, factors: list[dict], db_path=None) -> dict:
+def init_world_state(scenario_id: str, factors: list[dict], db_path=None) -> dict:
     vals = {f["id"]: max(0.0, min(100.0, float(f.get("current", 50)))) for f in factors}
     with get_conn(db_path) as c:
-        c.execute("""INSERT OR REPLACE INTO world_states(job_id,step_index,time_label,factor_values)
-          VALUES(?,0,'T0',?)""", (job_id, json.dumps(vals)))
+        c.execute("""INSERT OR REPLACE INTO world_states(scenario_id,step_index,time_label,factor_values)
+          VALUES(?,0,'T0',?)""", (scenario_id, json.dumps(vals)))
     return vals

@@ -32,7 +32,7 @@ def _db(monkeypatch):
 def _mk_outcome(jid, oid, name, prob, band, rep, members):
     from app.db import get_conn
     with get_conn(DB) as c:
-        c.execute("""INSERT INTO outcomes(id,job_id,name,probability,band,summary,
+        c.execute("""INSERT INTO outcomes(id,scenario_id,name,probability,band,summary,
           factor_states,causal_path,indicators,assumptions,risks,explanation,
           representative_particle,enrichment) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
           (oid, jid, name, prob, band, "summary text", "{}", "[]", "[]", "[]", "[]",
@@ -45,7 +45,7 @@ def _mk_outcome(jid, oid, name, prob, band, rep, members):
 def _mk_particle(jid, pid, parent=None, prob=1.0, created_step=0):
     from app.db import get_conn
     with get_conn(DB) as c:
-        c.execute("INSERT INTO particles(id,job_id,parent_id,probability,factor_state,created_step)"
+        c.execute("INSERT INTO particles(id,scenario_id,parent_id,probability,factor_state,created_step)"
                   " VALUES(?,?,?,?,?,?)",
                   (pid, jid, parent, prob, json.dumps({"f0": 50.0}), created_step))
 
@@ -60,16 +60,16 @@ def _mk_state(pid, step, fv, events="[]"):
 def _mk_step(jid, step, label="step", summary="", tp="[]"):
     from app.db import get_conn
     with get_conn(DB) as c:
-        c.execute("INSERT OR REPLACE INTO projection_steps(job_id,step_index,time_label,summary,turning_points)"
+        c.execute("INSERT OR REPLACE INTO projection_steps(scenario_id,step_index,time_label,summary,turning_points)"
                   " VALUES(?,?,?,?,?)", (jid, step, label, summary, tp))
 
 
 # ---------------------------------------------------------------- aggregates
 
 def test_aggregate_mean_min_max_and_deltas():
-    from app.jobs.repositories import create_job
+    from app.scenarios.repos import create_scenario
     from app.futures import _aggregate, _end_deltas
-    jid = create_job("agg", db_path=DB)
+    jid = create_scenario("agg", db_path=DB)
     _mk_particle(jid, "a1"); _mk_particle(jid, "a2")
     _mk_state("a1", 0, {"f0": 50}); _mk_state("a1", 1, {"f0": 60})
     _mk_state("a2", 0, {"f0": 50}); _mk_state("a2", 1, {"f0": 40})
@@ -87,9 +87,9 @@ def test_aggregate_mean_min_max_and_deltas():
 
 
 def test_branch_detection_fork_no_fork_remerge():
-    from app.jobs.repositories import create_job
+    from app.scenarios.repos import create_scenario
     from app.futures import detect_branch_points
-    jid = create_job("branch", db_path=DB)
+    jid = create_scenario("branch", db_path=DB)
     # Tree: root r (step 0) -> children x,y (step 1); x -> x1, y -> y1 (step 2)
     _mk_particle(jid, "r", None, created_step=0)
     _mk_particle(jid, "x", "r", created_step=1)
@@ -128,9 +128,9 @@ def test_branch_detection_fork_no_fork_remerge():
 
 
 def test_story_tiers_events_then_milestones():
-    from app.jobs.repositories import create_job
+    from app.scenarios.repos import create_scenario
     from app.futures import derive_story
-    jid = create_job("story", db_path=DB)
+    jid = create_scenario("story", db_path=DB)
     # Tier 1: events present
     states = {"r": [{"step_index": 1, "factor_values": json.dumps({"f0": 55}),
                      "events": json.dumps(["startup acquired a competitor"])}]}
@@ -151,12 +151,12 @@ def test_story_tiers_events_then_milestones():
 
 
 def test_build_and_lazy_heal_artifact():
-    from app.jobs.repositories import create_job
+    from app.scenarios.repos import create_scenario
     from app.futures import (build_futures_view, save_futures_view,
                              load_futures_view, ARTIFACT_VERSION)
     from app.db import get_conn
     from app.steps.factors import select_factors
-    jid = create_job("artifact job", db_path=DB)
+    jid = create_scenario("artifact scenario", db_path=DB)
     select_factors(jid, [{"id": "f0", "name": "Income Trajectory", "current": 50.0}], "macro", DB)
     _mk_particle(jid, "p1"); _mk_particle(jid, "p2")
     _mk_state("p1", 0, {"f0": 50}); _mk_state("p1", 5, {"f0": 70})
@@ -164,9 +164,9 @@ def test_build_and_lazy_heal_artifact():
     _mk_step(jid, 0, "January", "calm"); _mk_step(jid, 5, "June", "1 particles")
     _mk_outcome(jid, "oA", "Outcome 1", 0.7, "dominant", "p1", ["p1"])
     _mk_outcome(jid, "oB", "Outcome 2", 0.3, "plausible", "p2", ["p2"])
-    # job must be COMPLETED for healing; create_job leaves DRAFT
+    # scenario must be COMPLETED for healing; create_scenario leaves DRAFT
     with get_conn(DB) as c:
-        c.execute("UPDATE projection_jobs SET status='COMPLETED' WHERE id=?", (jid,))
+        c.execute("UPDATE projection_scenarios SET status='COMPLETED' WHERE id=?", (jid,))
     fv = build_futures_view(jid, DB)
     assert fv is not None
     assert fv["version"] == ARTIFACT_VERSION
@@ -186,13 +186,13 @@ def test_build_and_lazy_heal_artifact():
     loaded = load_futures_view(jid, DB)
     assert loaded is not None
     with get_conn(DB) as c:
-        n = c.execute("SELECT COUNT(*) AS n FROM artifacts WHERE job_id=? AND kind='futures_view'",
+        n = c.execute("SELECT COUNT(*) AS n FROM artifacts WHERE scenario_id=? AND kind='futures_view'",
                       (jid,)).fetchone()["n"]
     assert n == 1
     # second load does not duplicate
     load_futures_view(jid, DB)
     with get_conn(DB) as c:
-        n2 = c.execute("SELECT COUNT(*) AS n FROM artifacts WHERE job_id=? AND kind='futures_view'",
+        n2 = c.execute("SELECT COUNT(*) AS n FROM artifacts WHERE scenario_id=? AND kind='futures_view'",
                        (jid,)).fetchone()["n"]
     assert n2 == 1
     # explicit save + load roundtrip
@@ -201,13 +201,13 @@ def test_build_and_lazy_heal_artifact():
 
 def test_artifact_failure_does_not_fail_completion():
     """The completion hook must tolerate builder crashes."""
-    from app.jobs.repositories import create_job
+    from app.scenarios.repos import create_scenario
     from app.futures import build_futures_view
-    jid = create_job("hook", db_path=DB)
+    jid = create_scenario("hook", db_path=DB)
     import app.futures as F
-    orig = F._load_job_data
+    orig = F._load_scenario_data
     def boom(*a, **k): raise RuntimeError("boom")
-    F._load_job_data = boom
+    F._load_scenario_data = boom
     try:
         result = None
         try:
@@ -216,15 +216,15 @@ def test_artifact_failure_does_not_fail_completion():
             result = "caught"
         assert result == "caught"
     finally:
-        F._load_job_data = orig
+        F._load_scenario_data = orig
     # and the wrapper used at completion swallows errors:
     def safe_build():
         try:
             return build_futures_view(jid, DB)
         except Exception:
             return None
-    F._load_job_data = boom
+    F._load_scenario_data = boom
     try:
         assert safe_build() is None
     finally:
-        F._load_job_data = orig
+        F._load_scenario_data = orig

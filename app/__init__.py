@@ -18,8 +18,8 @@ def create_app(config_override: dict | None = None) -> Flask:
 
     @app.get("/")
     def index():
-        from app.jobs.repositories import list_jobs
-        return render_template("jobs/dashboard.html", jobs=list_jobs())
+        from app.scenarios.repos import list_scenarios
+        return render_template("scenarios/dashboard.html", scenarios=list_scenarios())
 
     @app.get("/healthz")
     def healthz():
@@ -27,7 +27,7 @@ def create_app(config_override: dict | None = None) -> Flask:
 
     # Feature blueprints (registered lazily so hello-world works standalone).
     for mod, attr in [
-        ("app.routes.jobs", "bp"),
+        ("app.routes.scenarios", "bp"),
         ("app.routes.results", "bp"),
         ("app.routes.personal", "bp"),
         ("app.routes.settings", "bp"),

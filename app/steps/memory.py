@@ -2,9 +2,9 @@
 import json
 from app.db import get_conn
 
-def scenario_card(job_id: str, db_path=None) -> dict:
+def scenario_card(scenario_id: str, db_path=None) -> dict:
     with get_conn(db_path) as c:
-        r = c.execute("SELECT * FROM scenario_inputs WHERE job_id=?", (job_id,)).fetchone()
+        r = c.execute("SELECT * FROM scenario_inputs WHERE scenario_id=?", (scenario_id,)).fetchone()
         return dict(r) if r else {}
 
 def epoch_boundary(step: int, scope="macro", db_path=None) -> bool:
@@ -12,15 +12,15 @@ def epoch_boundary(step: int, scope="macro", db_path=None) -> bool:
     interval = settings.epoch_interval_steps
     return step > 0 and step % interval == 0
 
-def historian_summary(job_id: str, step: int, events: list, use_llm=False, db_path=None) -> dict:
-    from app.jobs.repositories import idem_key, idem_get, idem_put
-    key = idem_key(job_id, "epoch", step, "", str(len(events)))
+def historian_summary(scenario_id: str, step: int, events: list, use_llm=False, db_path=None) -> dict:
+    from app.scenarios.repos import idem_key, idem_get, idem_put
+    key = idem_key(scenario_id, "epoch", step, "", str(len(events)))
     c = idem_get(key, db_path)
     if c: return c
     if use_llm:
         try:
             from app.llm.client import LLMClient, model_for_phase
-            out = LLMClient(db_path=db_path).chat(job_id, "epoch", [
+            out = LLMClient(db_path=db_path).chat(scenario_id, "epoch", [
                 {"role": "system", "content": "Summarize epoch events into JSON: summary, turning_points."},
                 {"role": "user", "content": json.dumps(events)[:4000]}], model=model_for_phase("epoch"))["json"]
         except Exception:
@@ -30,22 +30,22 @@ def historian_summary(job_id: str, step: int, events: list, use_llm=False, db_pa
     idem_put(key, out, db_path)
     return out
 
-def add_turning_point(job_id: str, step: int, text: str, db_path=None) -> None:
+def add_turning_point(scenario_id: str, step: int, text: str, db_path=None) -> None:
     with get_conn(db_path) as c:
-        r = c.execute("SELECT turning_points FROM projection_steps WHERE job_id=? AND step_index=?",
-                      (job_id, step)).fetchone()
+        r = c.execute("SELECT turning_points FROM projection_steps WHERE scenario_id=? AND step_index=?",
+                      (scenario_id, step)).fetchone()
         tp = json.loads(r["turning_points"]) if r else []
         tp.append(text)
-        c.execute("""INSERT INTO projection_steps(job_id,step_index,turning_points)
-          VALUES(?,?,?) ON CONFLICT(job_id,step_index) DO UPDATE SET turning_points=excluded.turning_points""",
-          (job_id, step, json.dumps(tp)))
+        c.execute("""INSERT INTO projection_steps(scenario_id,step_index,turning_points)
+          VALUES(?,?,?) ON CONFLICT(scenario_id,step_index) DO UPDATE SET turning_points=excluded.turning_points""",
+          (scenario_id, step, json.dumps(tp)))
 
-def build_context(job_id: str, particle: dict, step: int, causal: dict,
+def build_context(scenario_id: str, particle: dict, step: int, causal: dict,
                   epoch_summary: dict | None, turning_points: list[str],
                   db_path=None) -> dict:
     """Compressed context: card, time, factor state, turning points, epoch summary, causal digest."""
     from app.config import settings
-    card = scenario_card(job_id, db_path)
+    card = scenario_card(scenario_id, db_path)
     ctx = {"scenario_card": {"premise": card.get("premise", ""), "scope": card.get("premise", ""),
             "reality_mode": card.get("reality_mode", "grounded"),
             "assumptions": json.loads(card.get("assumptions", "[]") if isinstance(card.get("assumptions"), str) else "[]")},

@@ -1,6 +1,6 @@
-{% for j in jobs %}
+{% for j in scenarios %}
 <tr>
-  <td><a href="/jobs/{{ j.id }}">{{ j.id[:8] }}</a></td>
+  <td><a href="/scenarios/{{ j.id }}">{{ j.id[:8] }}</a></td>
   <td class="premise-cell">{{ j.premise[:80] }}{% if j.premise|length > 80 %}...{% endif %}</td>
   <td><span class="status-badge status-{{ j.status|lower }}" id="status-{{ j.id }}">{{ j.status }}</span></td>
   <td class="step-cell">
@@ -19,11 +19,11 @@
   <td class="error-cell">{{ j.error[:60] if j.error else "—" }}</td>
   <td>
     {% if j.status == 'FAILED' %}
-    <button hx-post="/jobs/{{ j.id }}/retry" hx-target="#status-{{ j.id }}" hx-swap="innerHTML" class="btn btn-sm btn-secondary">Retry</button>
+    <button hx-post="/scenarios/{{ j.id }}/retry" hx-target="#status-{{ j.id }}" hx-swap="innerHTML" class="btn btn-sm btn-secondary">Retry</button>
     {% endif %}
   </td>
 </tr>
 {% endfor %}
-{% if jobs|length == 0 %}
-<tr><td colspan="7" class="empty-row">No jobs yet. <a href="/jobs/new">Create one</a>.</td></tr>
+{% if scenarios|length == 0 %}
+<tr><td colspan="7" class="empty-row">No scenarios yet. <a href="/scenarios/new">Create one</a>.</td></tr>
 {% endif %}

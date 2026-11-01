@@ -1,8 +1,8 @@
-"""Presentation helpers shared by job-detail and results views: human
+"""Presentation helpers shared by scenario-detail and results views: human
 probability strings, factor-name mapping, parsed JSON lists, outcome rows.
 
 Also heals legacy outcome rows (pre-readability pipeline) lazily on first
-view, so completed jobs run before the fix still render sensibly.
+view, so completed scenarios run before the fix still render sensibly.
 """
 import json
 import re
@@ -45,11 +45,11 @@ def as_list(value, limit: int = 6) -> list[str]:
     return [str(x) for x in items][:limit]
 
 
-def factor_names_for_job(jid: str, db_path=None) -> dict:
-    """Map factor id -> human name for a job's selected factor set."""
+def factor_names_for_scenario(jid: str, db_path=None) -> dict:
+    """Map factor id -> human name for a scenario's selected factor set."""
     with get_conn(db_path) as c:
         r = c.execute(
-            "SELECT factors FROM factor_sets WHERE job_id=? ORDER BY id DESC LIMIT 1",
+            "SELECT factors FROM factor_sets WHERE scenario_id=? ORDER BY id DESC LIMIT 1",
             (jid,)).fetchone()
     names: dict[str, str] = {}
     if r:
@@ -85,7 +85,7 @@ def movers(fs, names: dict, limit: int = 5) -> list[tuple[str, float]]:
 
 def prepare_outcomes(outs: list[dict], jid: str, db_path=None) -> list[dict]:
     """Convert raw outcome rows into template-ready dicts."""
-    names = factor_names_for_job(jid, db_path)
+    names = factor_names_for_scenario(jid, db_path)
     rows = []
     for o in outs:
         try:
@@ -123,11 +123,11 @@ def repair_legacy_outcomes(jid: str, db_path=None) -> None:
                                          _summarize, _direction, _pct)
     except Exception:
         return
-    names = factor_names_for_job(jid, db_path)
+    names = factor_names_for_scenario(jid, db_path)
     with get_conn(db_path) as c:
         outs = [dict(r) for r in c.execute(
             "SELECT id,name,probability,band,summary,factor_states,indicators,"
-            "assumptions,risks,causal_path,explanation FROM outcomes WHERE job_id=?",
+            "assumptions,risks,causal_path,explanation FROM outcomes WHERE scenario_id=?",
             (jid,))]
     for o in outs:
         legacy = (

@@ -1,51 +1,51 @@
 {% extends "base.html" %}
-{% block title %}Job {{ job["id"][:8] }} — Vataic{% endblock %}
+{% block title %}Scenario {{ scenario["id"][:8] }} — Vataic{% endblock %}
 {% block content %}
-<div class="job-detail-card">
-  <div class="job-detail-header">
-    <h1>Job {{ job["id"] }}</h1>
-    <span class="status-badge status-{{ job["status"]|lower }}">{% if job["status"] == 'COMPLETED' %}Completed{% elif job["status"] == 'FAILED' %}Failed{% elif job["status"] == 'RUNNING' %}Running{% else %}{{ job["status"] }}{% endif %}</span>
+<div class="scenario-detail-card">
+  <div class="scenario-detail-header">
+    <h1>Scenario {{ scenario["id"] }}</h1>
+    <span class="status-badge status-{{ scenario["status"]|lower }}">{% if scenario["status"] == 'COMPLETED' %}Completed{% elif scenario["status"] == 'FAILED' %}Failed{% elif scenario["status"] == 'RUNNING' %}Running{% else %}{{ scenario["status"] }}{% endif %}</span>
   </div>
 
-  <div class="job-premise">
+  <div class="scenario-premise">
     <h2>Premise</h2>
-    <p class="premise-text">{{ job["premise"] }}</p>
+    <p class="premise-text">{{ scenario["premise"] }}</p>
   </div>
 
-  <div class="job-meta-grid">
+  <div class="scenario-meta-grid">
     <div class="meta-item">
       <span class="meta-label">Scope</span>
-      <span class="meta-value">{{ job["scope"] or "—" }}</span>
+      <span class="meta-value">{{ scenario["scope"] or "—" }}</span>
     </div>
     <div class="meta-item">
       <span class="meta-label">Reality Mode</span>
-      <span class="meta-value">{{ job["reality_mode"] or "—" }}</span>
+      <span class="meta-value">{{ scenario["reality_mode"] or "—" }}</span>
     </div>
     <div class="meta-item">
       <span class="meta-label">Horizon</span>
-      <span class="meta-value">{{ job["horizon"] or "—" }}</span>
+      <span class="meta-value">{{ scenario["horizon"] or "—" }}</span>
     </div>
     <div class="meta-item">
       <span class="meta-label">Outcome Count</span>
-      <span class="meta-value">{{ job["outcome_count"] or "—" }}</span>
+      <span class="meta-value">{{ scenario["outcome_count"] or "—" }}</span>
     </div>
   </div>
 
-  {% if job["error"] %}
-  <div class="job-error">
+  {% if scenario["error"] %}
+  <div class="scenario-error">
     <h2>Error</h2>
-    <p class="error-text">{{ job["error"] }}</p>
+    <p class="error-text">{{ scenario["error"] }}</p>
   </div>
   {% endif %}
 
-  <div class="job-progress">
+  <div class="scenario-progress">
     <h2>Progress</h2>
     <div class="progress-bar-wrapper">
       <div class="progress-bar" style="width: {{ progress_pct|default(0) }}%"></div>
     </div>
     <div class="progress-info">
-      <span class="phase">Phase: {{ checkpoint["phase"] or job["current_phase"] or "—" }}</span>
-      <span class="step">Step {{ checkpoint["step_index"] or job["current_step"] or 0 }}</span>
+      <span class="phase">Phase: {{ checkpoint["phase"] or scenario["current_phase"] or "—" }}</span>
+      <span class="step">Step {{ checkpoint["step_index"] or scenario["current_step"] or 0 }}</span>
     </div>
     <div class="progress-meta">
       <span class="meta-label">Elapsed:</span> <span class="meta-value">{{ elapsed_text }}</span>
@@ -53,7 +53,7 @@
     </div>
   </div>
 
-  <div class="job-budget">
+  <div class="scenario-budget">
     <h2>Budget Usage</h2>
     <div class="budget-grid">
       <div class="budget-item">
@@ -79,7 +79,7 @@
     </div>
   </div>
 
-  <div class="job-outcomes">
+  <div class="scenario-outcomes">
     <h2>Outcomes</h2>
     {% if outcomes|length == 0 %}
       <p class="empty">No outcomes yet. The projection is still running.</p>
@@ -99,19 +99,19 @@
     {% endif %}
   </div>
 
-  <div class="job-actions">
-    <a href="/results/{{ job["id"] }}" class="btn btn-primary">View Results</a>
-    {% if job["status"] in ['RUNNING', 'CHECKPOINTING'] %}
-    <button hx-post="/jobs/{{ job["id"] }}/suspend" hx-target="#status-{{ job["id"] }}" hx-swap="innerHTML" class="btn btn-secondary">Suspend</button>
+  <div class="scenario-actions">
+    <a href="/results/{{ scenario["id"] }}" class="btn btn-primary">View Results</a>
+    {% if scenario["status"] in ['RUNNING', 'CHECKPOINTING'] %}
+    <button hx-post="/scenarios/{{ scenario["id"] }}/suspend" hx-target="#status-{{ scenario["id"] }}" hx-swap="innerHTML" class="btn btn-secondary">Suspend</button>
     {% endif %}
-    {% if job["status"] == 'SUSPENDED' %}
-    <button hx-post="/jobs/{{ job["id"] }}/resume" hx-target="#status-{{ job["id"] }}" hx-swap="innerHTML" class="btn btn-secondary">Resume</button>
+    {% if scenario["status"] == 'SUSPENDED' %}
+    <button hx-post="/scenarios/{{ scenario["id"] }}/resume" hx-target="#status-{{ scenario["id"] }}" hx-swap="innerHTML" class="btn btn-secondary">Resume</button>
     {% endif %}
-    {% if job["status"] in ['RUNNING', 'CHECKPOINTING', 'SUSPENDED'] %}
-    <button hx-post="/jobs/{{ job["id"] }}/cancel" hx-target="#status-{{ job["id"] }}" hx-swap="innerHTML" class="btn btn-danger">Cancel</button>
+    {% if scenario["status"] in ['RUNNING', 'CHECKPOINTING', 'SUSPENDED'] %}
+    <button hx-post="/scenarios/{{ scenario["id"] }}/cancel" hx-target="#status-{{ scenario["id"] }}" hx-swap="innerHTML" class="btn btn-danger">Cancel</button>
     {% endif %}
-    {% if job["status"] == 'FAILED' %}
-    <button hx-post="/jobs/{{ job["id"] }}/retry" hx-target="#status-{{ job["id"] }}" hx-swap="innerHTML" class="btn btn-secondary">Retry</button>
+    {% if scenario["status"] == 'FAILED' %}
+    <button hx-post="/scenarios/{{ scenario["id"] }}/retry" hx-target="#status-{{ scenario["id"] }}" hx-swap="innerHTML" class="btn btn-secondary">Retry</button>
     {% endif %}
   </div>
 </div>

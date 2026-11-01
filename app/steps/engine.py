@@ -54,7 +54,7 @@ def merge_prune(particles: list[dict], db_path=None) -> list[dict]:
 
 def stopping_reason(step: int, budget: dict, clusters_stable: bool = False,
                     novelty_stalled: int = 0, horizon_reached: bool = False) -> str | None:
-    from app.jobs.repositories import check_budget
+    from app.scenarios.repos import check_budget
     ok, why = check_budget(budget)
     if not ok: return f"budget:{why}"
     if horizon_reached: return "horizon"
@@ -62,7 +62,7 @@ def stopping_reason(step: int, budget: dict, clusters_stable: bool = False,
     if novelty_stalled >= 3: return "diminished_novelty"
     return None
 
-def run_step(job_id: str, step: int, particles: list[dict], developments_fn=None,
+def run_step(scenario_id: str, step: int, particles: list[dict], developments_fn=None,
              reality_mode="grounded", budget: dict | None = None, db_path=None,
              llm_mode: bool = False, step_events: dict | None = None) -> dict:
     """One projection step across particles with checkpoint write.
@@ -72,11 +72,11 @@ def run_step(job_id: str, step: int, particles: list[dict], developments_fn=None
     returned by the proposer; they are persisted on particle_states and folded
     into the shared step summary so stories can cite real recorded events.
     """
-    from app.jobs.repositories import idem_key, idem_get, idem_put, save_checkpoint
+    from app.scenarios.repos import idem_key, idem_get, idem_put, save_checkpoint
     budget = budget or {}
     new_particles: list[dict] = []
     for p in particles:
-        key = idem_key(job_id, "step", step, p.get("id", ""), str(sorted(p.get("factor_state", {}).keys())))
+        key = idem_key(scenario_id, "step", step, p.get("id", ""), str(sorted(p.get("factor_state", {}).keys())))
         cached = idem_get(key, db_path)
         if cached:
             new_particles.extend(cached["particles"]); continue
@@ -114,13 +114,13 @@ def run_step(job_id: str, step: int, particles: list[dict], developments_fn=None
             for pt in pruned:
                 par = pt.get("parent")
                 if par:
-                    c.execute("""INSERT OR IGNORE INTO particles(id,job_id,probability,factor_state,created_step)
-                      VALUES(?,?,0.0,'{}',?)""", (par, job_id, step))
+                    c.execute("""INSERT OR IGNORE INTO particles(id,scenario_id,probability,factor_state,created_step)
+                      VALUES(?,?,0.0,'{}',?)""", (par, scenario_id, step))
             for pt in pruned:
                 ev = step_events.get(pt.get("id", "")) or step_events.get(pt.get("parent", "")) or {}
-                c.execute("""INSERT OR REPLACE INTO particles(id,job_id,parent_id,probability,
+                c.execute("""INSERT OR REPLACE INTO particles(id,scenario_id,parent_id,probability,
                   factor_state,created_step) VALUES(?,?,?,?,?,?)""",
-                  (pt.get("id", uuid.uuid4().hex[:8]), job_id, pt.get("parent"),
+                  (pt.get("id", uuid.uuid4().hex[:8]), scenario_id, pt.get("parent"),
                    pt.get("probability", 0), json.dumps(pt.get("factor_state", {})), step))
                 c.execute("""INSERT OR REPLACE INTO particle_states(particle_id,step_index,factor_values,events)
                   VALUES(?,?,?,?)""", (pt.get("id"), step, json.dumps(pt.get("factor_state", {})),
@@ -129,15 +129,15 @@ def run_step(job_id: str, step: int, particles: list[dict], developments_fn=None
             # proposer ran; a neutral step marker otherwise (junk-filtered later).
             if rec_summaries or rec_events:
                 summary = "; ".join((rec_summaries + rec_events)[:4])[:400]
-                c.execute("""INSERT OR REPLACE INTO projection_steps(job_id,step_index,time_label,summary,turning_points)
-                  VALUES(?,?,?,?,?)""", (job_id, step, f"step-{step}", summary,
+                c.execute("""INSERT OR REPLACE INTO projection_steps(scenario_id,step_index,time_label,summary,turning_points)
+                  VALUES(?,?,?,?,?)""", (scenario_id, step, f"step-{step}", summary,
                                           json.dumps(rec_events[:3])))
             else:
-                c.execute("""INSERT OR REPLACE INTO projection_steps(job_id,step_index,time_label,summary)
-                  VALUES(?,?,?,?)""", (job_id, step, f"step-{step}", f"{len(pruned)} particles"))
-    from app.jobs.repositories import _write_retry
+                c.execute("""INSERT OR REPLACE INTO projection_steps(scenario_id,step_index,time_label,summary)
+                  VALUES(?,?,?,?)""", (scenario_id, step, f"step-{step}", f"{len(pruned)} particles"))
+    from app.scenarios.repos import _write_retry
     _write_retry(_write_step_rows)
-    save_checkpoint(job_id, "projection_loop", step,
+    save_checkpoint(scenario_id, "projection_loop", step,
                     {"particles": pruned, "events": rec_events}, budget, db_path)
     out = {"particles": pruned, "budget": budget, "llm_mode": llm_mode}
     if rec_events:

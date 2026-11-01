@@ -29,7 +29,7 @@
 
 ## 4. Temporal Worker Integration
 
-- [x] 4.1 Create `ProjectionJobWorkflow` with activities mapped to phases: parse_scenario, extract_axioms, select_factors, build_causal_graph, initialize_world_state, projection_loop, cluster_outcomes, generate_explanations, finalize_report
+- [x] 4.1 Create `ProjectionScenarioWorkflow` with activities mapped to phases: parse_scenario, extract_axioms, select_factors, build_causal_graph, initialize_world_state, projection_loop, cluster_outcomes, generate_explanations, finalize_report
 - [x] 4.2 Implement workflow self-reinvocation pattern (continue-as-new / next-iteration) so the loop re-enters until checkpoint phase flips to clustering
 - [x] 4.3 Ensure every activity writes its result to DB before completing and is idempotent w.r.t. its key
 - [x] 4.4 Wire worker entrypoint (`worker/` package) that starts the Temporal worker and connects to the server from env

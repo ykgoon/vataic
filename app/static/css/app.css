@@ -209,7 +209,7 @@ body {
 }
 
 /* Cards */
-.form-card, .jobs-card, .job-detail-card, .review-card, .results-card, .personal-card, .settings-card, .error-card {
+.form-card, .scenarios-card, .scenario-detail-card, .review-card, .results-card, .personal-card, .settings-card, .error-card {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -297,21 +297,21 @@ textarea {
   border-radius: 6px;
 }
 
-/* Jobs table */
-.jobs-table {
+/* Scenarios table */
+.scenarios-table {
   width: 100%;
   border-collapse: collapse;
   margin-top: 16px;
 }
 
-.jobs-table th, .jobs-table td {
+.scenarios-table th, .scenarios-table td {
   padding: 12px 16px;
   text-align: left;
   border-bottom: 1px solid var(--border);
   font-size: 13px;
 }
 
-.jobs-table th {
+.scenarios-table th {
   color: var(--muted);
   font-weight: 500;
   text-transform: uppercase;
@@ -319,12 +319,12 @@ textarea {
   letter-spacing: 0.05em;
 }
 
-.jobs-table a {
+.scenarios-table a {
   color: var(--primary);
   text-decoration: none;
 }
 
-.jobs-table a:hover {
+.scenarios-table a:hover {
   text-decoration: underline;
 }
 
@@ -410,25 +410,25 @@ textarea {
   border: 1px solid var(--border);
 }
 
-/* Job detail */
-.job-detail-header {
+/* Scenario detail */
+.scenario-detail-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-bottom: 24px;
 }
 
-.job-detail-header h1 {
+.scenario-detail-header h1 {
   font-size: 24px;
 }
 
-.job-premise .premise-text {
+.scenario-premise .premise-text {
   font-size: 16px;
   line-height: 1.7;
   color: var(--text);
 }
 
-.job-meta-grid {
+.scenario-meta-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 16px;
@@ -456,7 +456,7 @@ textarea {
 }
 
 /* Progress */
-.job-progress {
+.scenario-progress {
   margin-top: 24px;
 }
 
@@ -483,7 +483,7 @@ textarea {
 }
 
 /* Budget */
-.job-budget {
+.scenario-budget {
   margin-top: 24px;
 }
 
@@ -530,7 +530,7 @@ textarea {
 }
 
 /* Error */
-.job-error {
+.scenario-error {
   margin-top: 24px;
   padding: 16px;
   background: var(--danger-soft);
@@ -540,7 +540,7 @@ textarea {
 }
 
 /* Actions */
-.job-actions {
+.scenario-actions {
   margin-top: 24px;
 }
 
@@ -551,14 +551,14 @@ textarea {
 }
 
 /* Links */
-.job-links {
+.scenario-links {
   margin-top: 24px;
   display: flex;
   gap: 12px;
 }
 
 /* Checkpoint */
-.job-checkpoint {
+.scenario-checkpoint {
   margin-top: 24px;
 }
 
@@ -785,17 +785,17 @@ textarea {
   max-width: 800px;
 }
 
-.personal-jobs {
+.personal-scenarios {
   margin-top: 24px;
 }
 
-.jobs-list {
+.scenarios-list {
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 
-.job-row {
+.scenario-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -807,14 +807,14 @@ textarea {
   text-decoration: none;
 }
 
-.job-row-title {
+.scenario-row-title {
   color: var(--text);
   text-decoration: none;
   font-size: 14px;
   flex: 1;
 }
 
-.job-row-title:hover {
+.scenario-row-title:hover {
   color: var(--primary);
 }
 
@@ -865,8 +865,8 @@ textarea {
   color: var(--muted);
 }
 
-/* Jobs dashboard */
-.jobs-dashboard {
+/* Scenarios dashboard */
+.scenarios-dashboard {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -885,7 +885,7 @@ textarea {
   font-size: 24px;
 }
 
-.jobs-table-wrapper {
+.scenarios-table-wrapper {
   overflow-x: auto;
 }
 
@@ -1025,10 +1025,10 @@ textarea {
     padding-left: 16px;
     padding-right: 16px;
   }
-  .form-row, .job-meta-grid, .budget-grid, .summary-grid {
+  .form-row, .scenario-meta-grid, .budget-grid, .summary-grid {
     grid-template-columns: 1fr;
   }
-  .job-meta-grid, .budget-grid {
+  .scenario-meta-grid, .budget-grid {
     grid-template-columns: 1fr 1fr;
   }
   .header-inner {
@@ -1041,10 +1041,10 @@ textarea {
     padding: 8px 10px;
     font-size: 13px;
   }
-  .form-card, .jobs-card, .job-detail-card, .review-card, .results-card, .personal-card, .settings-card {
+  .form-card, .scenarios-card, .scenario-detail-card, .review-card, .results-card, .personal-card, .settings-card {
     padding: 20px;
   }
-  .job-detail-header {
+  .scenario-detail-header {
     flex-direction: column;
     align-items: flex-start;
     gap: 12px;

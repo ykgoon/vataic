@@ -1,17 +1,17 @@
 {% extends "base.html" %}
-{% block title %}Results — Job {{ job["id"][:8] }}{% endblock %}
+{% block title %}Results — Scenario {{ scenario["id"][:8] }}{% endblock %}
 {% block content %}
 <div class="results-card">
-  <h1>Results — Job {{ job["id"][:8] }}</h1>
-  {% if job["premise"] %}
-  <p class="results-premise">&ldquo;{{ job["premise"] }}&rdquo;</p>
+  <h1>Results — Scenario {{ scenario["id"][:8] }}</h1>
+  {% if scenario["premise"] %}
+  <p class="results-premise">&ldquo;{{ scenario["premise"] }}&rdquo;</p>
   {% endif %}
   <p class="muted">These are structured scenario explorations, not predictions.</p>
 
   {% if outcomes %}
   <div class="outcome-grid">
     {% for o in outcomes %}
-    <div class="outcome-card" hx-get="/results/{{ job["id"] }}/outcome/{{ o["id"] }}" hx-trigger="click" hx-target="#detail">
+    <div class="outcome-card" hx-get="/results/{{ scenario["id"] }}/outcome/{{ o["id"] }}" hx-trigger="click" hx-target="#detail">
       <div class="outcome-header">
         <span class="outcome-name">{{ o["name"] }}</span>
         <span class="outcome-prob">{{ o["prob_display"] }}</span>
@@ -72,9 +72,9 @@
   <div id="detail" class="detail-panel"></div>
 
   <div class="actions-row">
-    <a href="/results/{{ job['id'] }}/tree" class="btn btn-secondary">Timeline Tree</a>
-    <a href="/results/{{ job['id'] }}/trajectories" class="btn btn-secondary">Factor Trajectories</a>
-    <a href="/jobs/{{ job['id'] }}" class="btn btn-primary">Back to Job</a>
+    <a href="/results/{{ scenario['id'] }}/tree" class="btn btn-secondary">Timeline Tree</a>
+    <a href="/results/{{ scenario['id'] }}/trajectories" class="btn btn-secondary">Factor Trajectories</a>
+    <a href="/scenarios/{{ scenario['id'] }}" class="btn btn-primary">Back to Scenario</a>
   </div>
 </div>
 {% endblock %}

@@ -9,16 +9,16 @@ def artifact_dir(base: str | None = None) -> Path:
     p.mkdir(parents=True, exist_ok=True)
     return p
 
-def write_artifact(job_id: str, kind: str, payload: dict, db_path=None, base=None) -> dict:
+def write_artifact(scenario_id: str, kind: str, payload: dict, db_path=None, base=None) -> dict:
     aid = uuid.uuid4().hex[:12]
-    d = artifact_dir(base) / job_id
+    d = artifact_dir(base) / scenario_id
     d.mkdir(parents=True, exist_ok=True)
     path = d / f"{aid}.{kind}.json"
     path.write_text(json.dumps(payload, indent=2))
     from app.db import get_conn
     with get_conn(db_path) as c:
-        c.execute("INSERT INTO artifacts(id,job_id,kind,path) VALUES(?,?,?,?)",
-                  (aid, job_id, kind, str(path)))
+        c.execute("INSERT INTO artifacts(id,scenario_id,kind,path) VALUES(?,?,?,?)",
+                  (aid, scenario_id, kind, str(path)))
     return {"id": aid, "path": str(path)}
 
 def read_artifact(path: str) -> dict:

@@ -1,19 +1,19 @@
-"""Job routes: submission form, dashboard with htmx polling, detail + controls."""
+"""Scenario routes: submission form, dashboard with htmx polling, detail + controls."""
 import json
 from flask import Blueprint, request, redirect, url_for, render_template, flash
 
-bp = Blueprint("jobs", __name__)
+bp = Blueprint("scenarios", __name__)
 
 
-@bp.get("/jobs/new")
+@bp.get("/scenarios/new")
 def new_form():
-    return render_template("jobs/new.html")
+    return render_template("scenarios/new.html")
 
 
-@bp.post("/jobs/new")
-def new_job():
-    from app.jobs.repositories import create_job
-    jid = create_job(
+@bp.post("/scenarios/new")
+def new_scenario():
+    from app.scenarios.repos import create_scenario
+    jid = create_scenario(
         premise=request.form.get("premise", ""),
         scope=request.form.get("scope", "macro"),
         reality_mode=request.form.get("reality_mode", "grounded"),
@@ -22,37 +22,37 @@ def new_job():
     )
     # Spec: communicate that the projection may take hours and browser may be closed
     flash(
-        f"Job {jid} accepted. Projections run asynchronously and may take a long time. "
+        f"Scenario {jid} accepted. Projections run asynchronously and may take a long time. "
         "You can close your browser after submitting; check back later for results.",
         "success",
     )
-    return redirect(f"/jobs/{jid}")
+    return redirect(f"/scenarios/{jid}")
 
 
-@bp.get("/jobs")
+@bp.get("/scenarios")
 def dashboard():
-    from app.jobs.repositories import list_jobs
-    jobs = list_jobs()
-    return render_template("jobs/dashboard.html", jobs=jobs)
+    from app.scenarios.repos import list_scenarios
+    scenarios = list_scenarios()
+    return render_template("scenarios/dashboard.html", scenarios=scenarios)
 
 
-@bp.get("/jobs/partial")
+@bp.get("/scenarios/partial")
 def dashboard_partial():
-    from app.jobs.repositories import list_jobs
-    jobs = list_jobs()
-    return render_template("jobs/partial.html", jobs=jobs)
+    from app.scenarios.repos import list_scenarios
+    scenarios = list_scenarios()
+    return render_template("scenarios/partial.html", scenarios=scenarios)
 
 
-@bp.get("/jobs/<jid>")
+@bp.get("/scenarios/<jid>")
 def detail(jid):
-    from app.jobs.repositories import get_job, latest_checkpoint
+    from app.scenarios.repos import get_scenario, latest_checkpoint
     from app.db import get_conn
-    from app.llm.usage import reconcile_budget, job_usage_summary
+    from app.llm.usage import reconcile_budget, scenario_usage_summary
     from app.present import prepare_outcomes, repair_legacy_outcomes
-    j = get_job(jid) or {}
+    j = get_scenario(jid) or {}
     cp = latest_checkpoint(jid) or {}
     # Reconcile budget_state with the durable llm_calls ledger so usage is
-    # real even for jobs that ran before usage capture existed.
+    # real even for scenarios that ran before usage capture existed.
     try:
         b = reconcile_budget(jid)
     except Exception:
@@ -61,19 +61,19 @@ def detail(jid):
     # Outcomes
     with get_conn() as c:
         outs = [dict(r) for r in c.execute(
-            "SELECT * FROM outcomes WHERE job_id=?", (jid,))]
+            "SELECT * FROM outcomes WHERE scenario_id=?", (jid,))]
     try:
         repair_legacy_outcomes(jid)
         with get_conn() as c:
             outs = [dict(r) for r in c.execute(
-                "SELECT * FROM outcomes WHERE job_id=?", (jid,))]
+                "SELECT * FROM outcomes WHERE scenario_id=?", (jid,))]
     except Exception:
         pass
     outcome_rows = prepare_outcomes(outs, jid)
 
     # LLM call stats: budget_state is reconciled above; cross-check with the
     # llm_calls table and take the larger of the two.
-    usage = job_usage_summary(jid)
+    usage = scenario_usage_summary(jid)
     llm_calls = max(b.get("llm_calls", 0) or 0, usage["real_calls"])
     llm_tokens = max(b.get("tokens", 0) or 0, usage["tokens"])
 
@@ -87,11 +87,11 @@ def detail(jid):
     steps_max = caps.get("steps", b.get("steps_max", 40)) or 40
     branches_used = b.get("branches", 0) or 0
     if not branches_used:
-        # Pre-usage-tracking jobs: derive from the durable particles table.
+        # Pre-usage-tracking scenarios: derive from the durable particles table.
         try:
             with get_conn() as c:
                 branches_used = c.execute(
-                    "SELECT COUNT(*) FROM particles WHERE job_id=? AND parent_id IS NOT NULL",
+                    "SELECT COUNT(*) FROM particles WHERE scenario_id=? AND parent_id IS NOT NULL",
                     (jid,)).fetchone()[0]
         except Exception:
             branches_used = 0
@@ -104,7 +104,7 @@ def detail(jid):
     }
 
     # Calculate progress: prefer the live checkpoint step, fall back to the
-    # job row's current_step (kept fresh by the worker).
+    # scenario row's current_step (kept fresh by the worker).
     phase = cp.get("phase") or j.get("current_phase", "")
     step = max(cp.get("step_index") or 0, j.get("current_step", 0) or 0)
     progress_pct = 0
@@ -143,8 +143,8 @@ def detail(jid):
     except Exception:
         eta_text = "n/a"
 
-    return render_template("jobs/detail.html",
-        job=j, checkpoint=cp, budget=b,
+    return render_template("scenarios/detail.html",
+        scenario=j, checkpoint=cp, budget=b,
         progress_pct=progress_pct, elapsed_text=elapsed_text,
         outcomes=outcome_rows,
         llm_calls=llm_calls, llm_tokens=llm_tokens,
@@ -155,8 +155,8 @@ def detail(jid):
 
 
 def _ctrl(jid, action):
-    from app.jobs.repositories import get_job, transition
-    j = get_job(jid) or {}
+    from app.scenarios.repos import get_scenario, transition
+    j = get_scenario(jid) or {}
     st = j.get("status", "DRAFT")
     try:
         if action == "cancel" and st not in ("CANCELLED",):
@@ -168,49 +168,49 @@ def _ctrl(jid, action):
         elif action == "retry" and st in ("FAILED", "CANCELLED"):
             transition(jid, "QUEUED", "user retry")
     except Exception as e:
-        return render_template("jobs/status_badge.html", status=f"error: {e}")
-    return render_template("jobs/status_badge.html", status=action)
+        return render_template("scenarios/status_badge.html", status=f"error: {e}")
+    return render_template("scenarios/status_badge.html", status=action)
 
 
-@bp.post("/jobs/<jid>/cancel")
+@bp.post("/scenarios/<jid>/cancel")
 def cancel(jid):
     return _ctrl(jid, "cancel")
 
 
-@bp.post("/jobs/<jid>/suspend")
+@bp.post("/scenarios/<jid>/suspend")
 def suspend(jid):
     return _ctrl(jid, "suspend")
 
 
-@bp.post("/jobs/<jid>/resume")
+@bp.post("/scenarios/<jid>/resume")
 def resume(jid):
     return _ctrl(jid, "resume")
 
 
-@bp.post("/jobs/<jid>/retry")
+@bp.post("/scenarios/<jid>/retry")
 def retry(jid):
     return _ctrl(jid, "retry")
 
 
-@bp.post("/jobs/<jid>/re-explain")
+@bp.post("/scenarios/<jid>/re-explain")
 def reexplain(jid):
-    """Re-run the explanation phase for a completed job whose outcome cards
+    """Re-run the explanation phase for a completed scenario whose outcome cards
     carry only template narrative (e.g. explained while the LLM was down),
-    then rebuild the futures-view artifact. Best-effort; the job stays
+    then rebuild the futures-view artifact. Best-effort; the scenario stays
     COMPLETED either way."""
-    from app.jobs.repositories import get_job, _write_retry
+    from app.scenarios.repos import get_scenario, _write_retry
     from app.db import get_conn
     from app.steps.synthesis import explain
     from app.futures import build_futures_view, save_futures_view
     import json as _json
-    job = get_job(jid) or {}
-    if job.get("status") != "COMPLETED":
-        return render_template("jobs/status_badge.html", status="not completed")
-    premise = job.get("premise", "")
+    scenario = get_scenario(jid) or {}
+    if scenario.get("status") != "COMPLETED":
+        return render_template("scenarios/status_badge.html", status="not completed")
+    premise = scenario.get("premise", "")
     try:
         with get_conn() as c:
             rows = [dict(r) for r in c.execute(
-                "SELECT * FROM outcomes WHERE job_id=?", (jid,))]
+                "SELECT * FROM outcomes WHERE scenario_id=?", (jid,))]
         updated = 0
         for r in rows:
             def _j(v):
@@ -220,7 +220,7 @@ def reexplain(jid):
                  "summary": r["summary"], "factor_states": _j(r.get("factor_states")),
                  "indicators": _j(r.get("indicators")), "assumptions": _j(r.get("assumptions")),
                  "risks": _j(r.get("risks")), "causal_path": _j(r.get("causal_path"))}
-            e = explain(o, use_llm=True, job_id=jid, premise=premise)
+            e = explain(o, use_llm=True, scenario_id=jid, premise=premise)
             if e.get("explanation") and e["explanation"] != (r.get("explanation") or ""):
                 def _upd(_e=e, _rid=r["id"]):
                     with get_conn() as c:
@@ -232,35 +232,35 @@ def reexplain(jid):
         # Rebuild the futures-view artifact (updated_at bump forces rebuild).
         def _touch():
             with get_conn() as c:
-                c.execute("UPDATE projection_jobs SET updated_at=datetime('now') WHERE id=?", (jid,))
+                c.execute("UPDATE projection_scenarios SET updated_at=datetime('now') WHERE id=?", (jid,))
         _write_retry(_touch)
         fv = build_futures_view(jid)
         if fv:
             _write_retry(lambda: save_futures_view(jid, fv))
-        return render_template("jobs/status_badge.html", status=f"re-explained {updated}")
+        return render_template("scenarios/status_badge.html", status=f"re-explained {updated}")
     except Exception as e:
-        return render_template("jobs/status_badge.html", status=f"error: {e}")
+        return render_template("scenarios/status_badge.html", status=f"error: {e}")
 
 
-@bp.get("/jobs/<jid>/review")
+@bp.get("/scenarios/<jid>/review")
 def review(jid):
     from app.db import get_conn
     with get_conn() as c:
-        s = c.execute("SELECT * FROM scenario_inputs WHERE job_id=?", (jid,)).fetchone()
-        f = c.execute("SELECT * FROM factor_sets WHERE job_id=? ORDER BY id DESC LIMIT 1", (jid,)).fetchone()
-        g = c.execute("SELECT * FROM causal_graphs WHERE job_id=? ORDER BY id DESC LIMIT 1", (jid,)).fetchone()
+        s = c.execute("SELECT * FROM scenario_inputs WHERE scenario_id=?", (jid,)).fetchone()
+        f = c.execute("SELECT * FROM factor_sets WHERE scenario_id=? ORDER BY id DESC LIMIT 1", (jid,)).fetchone()
+        g = c.execute("SELECT * FROM causal_graphs WHERE scenario_id=? ORDER BY id DESC LIMIT 1", (jid,)).fetchone()
 
     scenario = {"assumptions": s["assumptions"] if s else "[]"} if s else None
     factors = {"factors": f["factors"] if f else "[]", "watchlist": f["watchlist"] if f else "[]"} if f else None
     graph = {"edges": g["edges"] if g else "[]"} if g else None
 
-    return render_template("jobs/review.html", job=jid, scenario=scenario, factors=factors, graph=graph)
+    return render_template("scenarios/review.html", scenario=jid, parsed=scenario, factors=factors, graph=graph)
 
 
-@bp.post("/jobs/<jid>/review")
+@bp.post("/scenarios/<jid>/review")
 def review_save(jid):
     from app.db import get_conn
     fac = request.form.get("factors", "[]")
     with get_conn() as c:
-        c.execute("INSERT INTO factor_sets(job_id,factors) VALUES(?,?)", (jid, fac))
-    return redirect(f"/jobs/{jid}")
+        c.execute("INSERT INTO factor_sets(scenario_id,factors) VALUES(?,?)", (jid, fac))
+    return redirect(f"/scenarios/{jid}")

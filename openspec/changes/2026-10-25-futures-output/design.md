@@ -7,7 +7,7 @@ The projection pipeline already stores everything a legible futures view needs:
 - `particles` (id, parent_id, probability, factor_state, created_step, status) — the
   timeline population with real lineage.
 - `particle_states` (particle_id, step_index, factor_values, events) — per-step factor
-  values for every timeline; `events` may be empty (heuristic-mode jobs).
+  values for every timeline; `events` may be empty (heuristic-mode scenarios).
 - `projection_steps` (step_index, time_label, summary, turning_points) — shared step
   narrative; may be template-generated.
 - `outcomes` + `outcome_particle_memberships` — clusters with probability, band, summary,
@@ -32,21 +32,21 @@ Approved mockups: `screens/mock1.png` (overview), `screens/mock2.png` (map + sto
   `<details>` for disclosure, no JS framework, no client chart libs.
 
 **Non-Goals:**
-- Multi-job comparison; drag/zoom interactivity; client-side rendering; changes to the
+- Multi-scenario comparison; drag/zoom interactivity; client-side rendering; changes to the
   projection engine, clustering, or intake; new LLM calls at render time.
 
 ## Decisions
 
 ### D1: Precompute a futures-view artifact instead of aggregating per request
-A completed job has up to ~50 particles × 40 steps × ~8 factors of state rows. Aggregating
-that on every page view is wasteful and slow. At completion (and lazily for legacy jobs),
+A completed scenario has up to ~50 particles × 40 steps × ~8 factors of state rows. Aggregating
+that on every page view is wasteful and slow. At completion (and lazily for legacy scenarios),
 a builder module computes a versioned JSON artifact: per outcome {mean/min/max per factor
 per step, member particle ids + weights, end-state deltas}, plus the branch-point list
 with per-fork factor deltas and step events. Stored via the existing `artifacts` table
 (kind `futures_view`, version field inside the JSON payload).
 
 **Alternative considered:** aggregate in the route on every request with an in-process
-LRU cache. Rejected: cache invalidation across gunicorn workers, and legacy-job healing
+LRU cache. Rejected: cache invalidation across gunicorn workers, and legacy-scenario healing
 would recompute invisibly; the artifact also doubles as an exportable summary.
 
 ### D2: Branch points from lineage, not guessed
@@ -96,12 +96,12 @@ by storing two copies of text. Rationale: stored text stays scope-neutral and fu
 scopes (org, community) add phrasebook entries, not data migrations.
 
 ### D7: Heuristic-mode badge from existing budget data
-Zero `llm_calls` rows for the job ⇒ heuristic mode badge in the overview strip. No new
+Zero `llm_calls` rows for the scenario ⇒ heuristic mode badge in the overview strip. No new
 tracking needed.
 
 ### D8: Tree page demotion, not deletion
 `/results/<jid>/tree` stays (debug aid, tests reference it), removed from primary
-navigation; the futures map becomes the structural view. Legacy-job healing keeps old jobs
+navigation; the futures map becomes the structural view. Legacy-scenario healing keeps old scenarios
 renderable on the new page.
 
 ## Implementation Sketch
@@ -117,13 +117,13 @@ renderable on the new page.
   `app/static`.
 - `worker/workflows.py` / `app/steps/synthesis.py`: call the builder once at completion
   (wrapped in the existing `_write_retry` discipline; artifact failure must not fail the
-  job).
+  scenario).
 - `app/present.py`: delta-chip and share-and-count formatting helpers.
 
 ## Risks / Trade-offs
 
 - **Artifact staleness** if outcomes are re-clustered post-completion → artifact version
-  field + builder keyed on job `updated_at`; stale artifacts are rebuilt on view.
+  field + builder keyed on scenario `updated_at`; stale artifacts are rebuilt on view.
 - **Branch detection heuristics** may over/under-detect forks on odd particle graphs →
   single-path fallback is always valid; detection is unit-tested against synthetic
   lineages (fork, no-fork, re-merge).
@@ -132,7 +132,7 @@ renderable on the new page.
 ## Migration Plan
 
 1. Ship builder + routes + templates behind the existing routes (same URLs).
-2. Legacy jobs heal lazily on first view (mirrors `repair_legacy_outcomes`).
+2. Legacy scenarios heal lazily on first view (mirrors `repair_legacy_outcomes`).
 3. No data migration, no schema change; artifacts are additive.
 
 ## Open Questions

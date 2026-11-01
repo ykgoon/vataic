@@ -2,12 +2,12 @@
 
 The worker runs a simple polling loop:
   1. On startup and every POLL_INTERVAL seconds, call scan_recoverable()
-     to find jobs with expired leases (RUNNING / RECOVERING / CHECKPOINTING)
-     and scan_queued() to find jobs waiting to start (QUEUED).
-  2. For each job found, acquire a fresh lease and run the full pipeline
-     via ProjectionJobWorkflow.run_sync(inp).
+     to find scenarios with expired leases (RUNNING / RECOVERING / CHECKPOINTING)
+     and scan_queued() to find scenarios waiting to start (QUEUED).
+  2. For each scenario found, acquire a fresh lease and run the full pipeline
+     via ProjectionScenarioWorkflow.run_sync(inp).
   3. A lease-renewal heartbeat thread keeps the lease alive while a long
-     job is in flight, so the recovery scanner doesn't steal it.
+     scenario is in flight, so the recovery scanner doesn't steal it.
 
 The DB state machine (states.py), checkpoints, idempotency records, and
 leases already provide all the durable-execution semantics that Temporal
@@ -18,34 +18,34 @@ import logging
 import threading
 import time
 
-from app.jobs.repositories import (
+from app.scenarios.repos import (
     acquire_lease,
-    get_job,
+    get_scenario,
     renew_lease,
     scan_queued,
     scan_recoverable,
 )
-from worker.workflows import ProjectionJobWorkflow
+from worker.workflows import ProjectionScenarioWorkflow
 
 logger = logging.getLogger(__name__)
 
-# How often to scan for recoverable jobs (seconds).
+# How often to scan for recoverable scenarios (seconds).
 # The projection loop already checkpoints per step, so a shorter interval
 # just means faster recovery after a crash.
 POLL_INTERVAL = 5  # seconds
 
-# Lease TTL in seconds. Matches the default in app/jobs/repositories.py.
-# A job holding a lease is renewed every TTL/3 while running; if a worker
+# Lease TTL in seconds. Matches the default in app/scenarios/repositories.py.
+# A scenario holding a lease is renewed every TTL/3 while running; if a worker
 # dies for longer than TTL, the recovery scanner reclaims it.
 LEASE_TTL_S = 300
 
 
 class LeaseRenewalThread(threading.Thread):
-    """Background thread that renews the lease for a job while it runs."""
+    """Background thread that renews the lease for a scenario while it runs."""
 
-    def __init__(self, job_id: str, owner: str, ttl_s: int):
+    def __init__(self, scenario_id: str, owner: str, ttl_s: int):
         super().__init__(daemon=True)
-        self.job_id = job_id
+        self.scenario_id = scenario_id
         self.owner = owner
         self.ttl_s = ttl_s
         self._stop = threading.Event()
@@ -53,26 +53,26 @@ class LeaseRenewalThread(threading.Thread):
     def run(self):
         while not self._stop.is_set():
             try:
-                renewed = renew_lease(self.job_id, self.owner, self.ttl_s)
+                renewed = renew_lease(self.scenario_id, self.owner, self.ttl_s)
                 if renewed:
-                    logger.debug("lease renewed for job %s", self.job_id)
+                    logger.debug("lease renewed for scenario %s", self.scenario_id)
                 else:
-                    logger.warning("lease renewal failed for job %s", self.job_id)
+                    logger.warning("lease renewal failed for scenario %s", self.scenario_id)
             except Exception as e:
-                logger.warning("lease renewal error for job %s: %s", self.job_id, e)
+                logger.warning("lease renewal error for scenario %s: %s", self.scenario_id, e)
             time.sleep(max(1, self.ttl_s // 3))
 
     def stop(self):
         self._stop.set()
 
 
-def _build_input(job_id: str) -> dict:
-    """Build the input dict for run_sync from the job row."""
-    j = get_job(job_id)
+def _build_input(scenario_id: str) -> dict:
+    """Build the input dict for run_sync from the scenario row."""
+    j = get_scenario(scenario_id)
     if not j:
         return {}
     return {
-        "job_id": job_id,
+        "scenario_id": scenario_id,
         "premise": j.get("premise", ""),
         "scope": j.get("scope", "macro"),
         "reality_mode": j.get("reality_mode", "grounded"),
@@ -81,12 +81,12 @@ def _build_input(job_id: str) -> dict:
     }
 
 
-def _run_job(job_id: str, owner: str) -> None:
-    """Acquire lease for a job and run the full pipeline via run_sync."""
-    logger.info("starting job %s (owner=%s)", job_id, owner)
-    inp = _build_input(job_id)
+def _run_scenario(scenario_id: str, owner: str) -> None:
+    """Acquire lease for a scenario and run the full pipeline via run_sync."""
+    logger.info("starting scenario %s (owner=%s)", scenario_id, owner)
+    inp = _build_input(scenario_id)
     if not inp:
-        logger.warning("no input for job %s, skipping", job_id)
+        logger.warning("no input for scenario %s, skipping", scenario_id)
         return
 
     # Acquire the lease. If it fails, another worker already has it.
@@ -95,7 +95,7 @@ def _run_job(job_id: str, owner: str) -> None:
     leased = False
     for _attempt in range(3):
         try:
-            leased = acquire_lease(job_id, owner, ttl_s=LEASE_TTL_S, db_path=None)
+            leased = acquire_lease(scenario_id, owner, ttl_s=LEASE_TTL_S, db_path=None)
             break
         except Exception as e:
             if "database is locked" in str(e) and _attempt < 2:
@@ -103,21 +103,21 @@ def _run_job(job_id: str, owner: str) -> None:
                 continue
             raise
     if not leased:
-        logger.warning("could not acquire lease for job %s, skipping", job_id)
+        logger.warning("could not acquire lease for scenario %s, skipping", scenario_id)
         return
 
     # Start the lease-renewal heartbeat so the scanner doesn't steal us.
-    renewal = LeaseRenewalThread(job_id, owner, LEASE_TTL_S)
+    renewal = LeaseRenewalThread(scenario_id, owner, LEASE_TTL_S)
     renewal.start()
     try:
-        out = ProjectionJobWorkflow.run_sync(inp)
-        logger.info("job %s finished: %s", job_id, out.get("status"))
+        out = ProjectionScenarioWorkflow.run_sync(inp)
+        logger.info("scenario %s finished: %s", scenario_id, out.get("status"))
     except Exception as e:
-        logger.exception("job %s raised: %s", job_id, e)
-        # run_sync transitions the job to FAILED on error, but make sure
+        logger.exception("scenario %s raised: %s", scenario_id, e)
+        # run_sync transitions the scenario to FAILED on error, but make sure
         # the lease is released so recovery can pick it up again.
         try:
-            acquire_lease(job_id, "dead", ttl_s=-1)
+            acquire_lease(scenario_id, "dead", ttl_s=-1)
         except Exception:
             pass
     finally:
@@ -126,7 +126,7 @@ def _run_job(job_id: str, owner: str) -> None:
 
 
 def _scan_and_run(owner: str) -> None:
-    """Scan for recoverable and queued jobs and run each one."""
+    """Scan for recoverable and queued scenarios and run each one."""
     recoverable = []
     try:
         recoverable = scan_recoverable()
@@ -138,23 +138,23 @@ def _scan_and_run(owner: str) -> None:
     except Exception as e:
         logger.error("scan_queued failed: %s", e)
 
-    jobs = list(recoverable) + [q for q in queued if q not in recoverable]
-    if not jobs:
+    scenarios = list(recoverable) + [q for q in queued if q not in recoverable]
+    if not scenarios:
         return
 
-    logger.info("scan found %d job(s) to run: %s", len(jobs), jobs)
-    for job_id in jobs:
-        j = get_job(job_id)
+    logger.info("scan found %d scenario(s) to run: %s", len(scenarios), scenarios)
+    for scenario_id in scenarios:
+        j = get_scenario(scenario_id)
         if not j:
             continue
         status = j.get("status")
         if status not in ("RUNNING", "RECOVERING", "CHECKPOINTING", "QUEUED"):
             continue
-        _run_job(job_id, owner)
-        # _run_job drives a job end-to-end (or leaves it RUNNING with a live
+        _run_scenario(scenario_id, owner)
+        # _run_scenario drives a scenario end-to-end (or leaves it RUNNING with a live
         # lease after a crash). Either way the state changed underneath this
         # scan snapshot: re-derive the remaining list on the next poll so we
-        # never re-enter a job that is already in progress.
+        # never re-enter a scenario that is already in progress.
         break
 
 
@@ -167,7 +167,7 @@ def main() -> None:
     owner = f"worker-{int(time.time())}"
     logger.info("vataic worker starting (owner=%s, poll_interval=%ds)", owner, POLL_INTERVAL)
 
-    # Initial scan to pick up any jobs left from a previous run.
+    # Initial scan to pick up any scenarios left from a previous run.
     _scan_and_run(owner)
 
     while True:

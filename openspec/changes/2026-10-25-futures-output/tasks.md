@@ -3,7 +3,7 @@
 ## 1. Futures-view artifact builder
 
 - [x] 1.1 Create `app/futures.py` with aggregate computation: per outcome, per factor, per step mean/min/max across member particles from `particle_states`; end-state deltas vs baseline; member id + weight lists
-  - Acceptance: pure function of (job data) → dict; unit tests cover a synthetic 3-outcome job fixture
+  - Acceptance: pure function of (scenario data) → dict; unit tests cover a synthetic 3-outcome scenario fixture
   - Verify: `uv run pytest tests/test_futures.py`
   - Files: `app/futures.py`, `tests/test_futures.py`
 
@@ -17,22 +17,22 @@
   - Verify: `uv run pytest tests/test_futures.py -k story`
   - Files: `app/futures.py`
 
-- [x] 1.4 Artifact persistence: store as `artifacts` row (kind `futures_view`), versioned JSON; `load_futures_view(jid)` with lazy heal on miss; stale-artifact rebuild keyed on job `updated_at`
-  - Acceptance: second load hits the stored artifact; touching the job row triggers rebuild
+- [x] 1.4 Artifact persistence: store as `artifacts` row (kind `futures_view`), versioned JSON; `load_futures_view(jid)` with lazy heal on miss; stale-artifact rebuild keyed on scenario `updated_at`
+  - Acceptance: second load hits the stored artifact; touching the scenario row triggers rebuild
   - Verify: `uv run pytest tests/test_futures.py -k artifact`
   - Files: `app/futures.py`
 
 ## 2. Completion hook
 
-- [x] 2.1 Invoke the builder at job completion in the synthesis phase; wrap writes in `_write_retry`; artifact failure logs and does not fail the job
-  - Acceptance: a completed job has a `futures_view` artifact; injected builder exception leaves the job COMPLETED
+- [x] 2.1 Invoke the builder at scenario completion in the synthesis phase; wrap writes in `_write_retry`; artifact failure logs and does not fail the scenario
+  - Acceptance: a completed scenario has a `futures_view` artifact; injected builder exception leaves the scenario COMPLETED
   - Verify: `uv run pytest tests/test_futures.py -k completion` and existing suite
   - Files: `app/steps/synthesis.py`, `worker/workflows.py`
 
 ## 3. Futures view routes and SVG
 
 - [x] 3.1 Rework `GET /results/<jid>` to render from the artifact: overview strip (premise, horizon label, timelines explored, distinct futures, heuristic-mode badge from zero `llm_calls`), probability split with share-and-count, sorted by probability
-  - Acceptance: rendered page matches mock1.png structure for the devbox job; heuristic badge appears on the 0-LLM job
+  - Acceptance: rendered page matches mock1.png structure for the devbox scenario; heuristic badge appears on the 0-LLM scenario
   - Verify: manual via devbox; `uv run pytest tests/test_routes_futures.py`
   - Files: `app/routes/results.py`, `app/templates/results/index.html`
 
@@ -52,7 +52,7 @@
   - Files: `app/routes/results.py`, `app/templates/results/partials/map.html`
 
 - [x] 3.5 Path story partial: numbered time-anchored steps with cornerstone click-to-expand rationale (`<details>`): causal chain, factor deltas, dependent assumptions; early-signals callout from indicators; heuristic-mode source shown when `story_source` is milestones
-  - Acceptance: rationale disclosures render non-empty for both LLM and heuristic jobs
+  - Acceptance: rationale disclosures render non-empty for both LLM and heuristic scenarios
   - Verify: `uv run pytest tests/test_routes_futures.py -k story`; manual
   - Files: `app/templates/results/partials/story.html`, `app/routes/results.py`
 
@@ -72,7 +72,7 @@
 
 ## 6. End-to-end verification on devbox
 
-- [x] 6.1 Deploy to devbox compose stack (source hot-patch or rebuild during a quiet period — never concurrent builds); rerun or reuse a completed job; screenshot the futures view, fan chart, map, story, and rationale disclosures with the headless-Chrome setup in `/tmp/vshot`
-  - Acceptance: screenshots match the approved mockups' structure; legacy job heals on first view; zero-LLM job shows heuristic badge
+- [x] 6.1 Deploy to devbox compose stack (source hot-patch or rebuild during a quiet period — never concurrent builds); rerun or reuse a completed scenario; screenshot the futures view, fan chart, map, story, and rationale disclosures with the headless-Chrome setup in `/tmp/vshot`
+  - Acceptance: screenshots match the approved mockups' structure; legacy scenario heals on first view; zero-LLM scenario shows heuristic badge
   - Verify: visual review; screenshots stored in `vataic/screens/`
   - Files: none (verification)

@@ -2,7 +2,7 @@
 <div class="tabs" role="tablist">
   {% for f in fv["factors"] %}
   <button class="tab {{ 'on' if f['id'] == fan_factor['id'] else '' }}"
-          hx-get="/results/{{ job['id'] }}/fan?factor={{ f['id'] }}"
+          hx-get="/results/{{ scenario['id'] }}/fan?factor={{ f['id'] }}"
           hx-target="#fan-panel .fan-zone" hx-swap="innerHTML">{{ f["name"] }}</button>
   {% endfor %}
 </div>

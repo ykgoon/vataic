@@ -1,13 +1,13 @@
 {% extends "base.html" %}
-{% block title %}Jobs — Vataic{% endblock %}
+{% block title %}Scenarios — Vataic{% endblock %}
 {% block content %}
-<div class="jobs-dashboard">
+<div class="scenarios-dashboard">
   <div class="dashboard-header">
-    <h1>Jobs</h1>
-    <a href="/jobs/new" class="btn btn-primary">+ New Job</a>
+    <h1>Scenarios</h1>
+    <a href="/scenarios/new" class="btn btn-primary">+ New Scenario</a>
   </div>
-  <div class="jobs-table-wrapper">
-    <table class="jobs-table">
+  <div class="scenarios-table-wrapper">
+    <table class="scenarios-table">
       <thead>
         <tr>
           <th>ID</th>
@@ -19,11 +19,11 @@
           <th></th>
         </tr>
       </thead>
-      <tbody id="jobs-tbody"
-               hx-get="/jobs/partial"
+      <tbody id="scenarios-tbody"
+               hx-get="/scenarios/partial"
                hx-trigger="interval:3000, request:after"
                hx-swap="innerHTML">
-        {% include "jobs/partial.html" %}
+        {% include "scenarios/partial.html" %}
       </tbody>
     </table>
   </div>

@@ -1,11 +1,11 @@
 {% extends "base.html" %}
-{% block title %}Futures — Job {{ job["id"][:8] }}{% endblock %}
+{% block title %}Futures — Scenario {{ scenario["id"][:8] }}{% endblock %}
 {% block content %}
 <div class="results-card futures-view">
   <div class="futures-head">
     <h1>Futures overview</h1>
-    {% if job["premise"] %}
-    <p class="results-premise">&ldquo;{{ job["premise"] }}&rdquo;</p>
+    {% if scenario["premise"] %}
+    <p class="results-premise">&ldquo;{{ scenario["premise"] }}&rdquo;</p>
     {% endif %}
     <div class="futures-meta">
       <span>horizon: {{ fv["horizon"] }}</span>
@@ -14,7 +14,7 @@
       <span>&middot;</span>
       <span>{{ fv["outcomes"]|length }} distinct future{{ '' if fv["outcomes"]|length == 1 else 's' }}</span>
       {% if fv["heuristic_mode"] %}
-      <span class="heuristic-badge" title="This job completed without any LLM calls; narrative text is template-generated from stored data.">heuristic mode</span>
+      <span class="heuristic-badge" title="This scenario completed without any LLM calls; narrative text is template-generated from stored data.">heuristic mode</span>
       {% endif %}
       {% if fv["story_source"] == "milestones" and not fv["heuristic_mode"] %}
       <span class="heuristic-badge" title="Story steps were derived from stored factor trajectories, not recorded events.">milestone-derived story</span>
@@ -91,9 +91,9 @@
   </section>
 
   <div class="actions-row">
-    <a href="/results/{{ job['id'] }}/tree" class="btn btn-secondary">Timeline Tree (debug)</a>
-    <a href="/results/{{ job['id'] }}/trajectories" class="btn btn-secondary">Factor Trajectories (all timelines)</a>
-    <a href="/jobs/{{ job['id'] }}" class="btn btn-primary">Back to Job</a>
+    <a href="/results/{{ scenario['id'] }}/tree" class="btn btn-secondary">Timeline Tree (debug)</a>
+    <a href="/results/{{ scenario['id'] }}/trajectories" class="btn btn-secondary">Factor Trajectories (all timelines)</a>
+    <a href="/scenarios/{{ scenario['id'] }}" class="btn btn-primary">Back to Scenario</a>
   </div>
 </div>
 {% endblock %}

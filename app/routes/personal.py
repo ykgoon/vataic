@@ -7,9 +7,9 @@ bp = Blueprint("personal", __name__)
 
 @bp.get("/personal")
 def personal_index():
-    from app.jobs.repositories import list_jobs
-    jobs = [j for j in list_jobs() if j.get("scope") == "personal"]
-    return render_template("personal/index.html", personal_jobs=jobs)
+    from app.scenarios.repos import list_scenarios
+    scenarios = [j for j in list_scenarios() if j.get("scope") == "personal"]
+    return render_template("personal/index.html", personal_scenarios=scenarios)
 
 
 @bp.get("/personal/<jid>")
@@ -19,10 +19,10 @@ def builder(jid):
     s = get_subject(jid)
     with get_conn() as c:
         flag = c.execute(
-            "SELECT * FROM safety_flags WHERE job_id=? ORDER BY id DESC LIMIT 1", (jid,)).fetchone()
+            "SELECT * FROM safety_flags WHERE scenario_id=? ORDER BY id DESC LIMIT 1", (jid,)).fetchone()
     if flag and flag["flagged"]:
         return render_template("personal/safety.html", flag=flag)
-    return render_template("personal/builder.html", job={"id": jid}, subject=s, flag=flag)
+    return render_template("personal/builder.html", scenario={"id": jid}, subject=s, flag=flag)
 
 
 @bp.post("/personal/<jid>")
@@ -42,14 +42,14 @@ def export(jid):
     from app.db import get_conn
     with get_conn() as c:
         data = {
-            "job": jid,
+            "scenario": jid,
             "subjects": [dict(r) for r in c.execute(
-                "SELECT * FROM subjects WHERE job_id=?", (jid,))],
+                "SELECT * FROM subjects WHERE scenario_id=?", (jid,))],
             "outcomes": [dict(r) for r in c.execute(
-                "SELECT * FROM outcomes WHERE job_id=?", (jid,))]
+                "SELECT * FROM outcomes WHERE scenario_id=?", (jid,))]
         }
     art = write_artifact(jid, "export", json.loads(json.dumps(data, default=str)))
-    return redirect(f"/jobs/{jid}")
+    return redirect(f"/scenarios/{jid}")
 
 
 @bp.post("/personal/<jid>/delete")

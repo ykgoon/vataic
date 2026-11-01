@@ -6,13 +6,13 @@ document.addEventListener('DOMContentLoaded', function() {
     setTimeout(function() { flash.classList.remove('show'); }, 3000);
   }
 
-  // Add htmx polling to job dashboard
-  const jobTable = document.querySelector('table.jobs-table');
+  // Add htmx polling to scenario dashboard
+  const jobTable = document.querySelector('table.scenarios-table');
   if (jobTable) {
     const tbody = jobTable.querySelector('tbody');
     if (tbody) {
       setInterval(function() {
-        fetch('/jobs/partial')
+        fetch('/scenarios/partial')
           .then(r => r.text())
           .then(html => {
             const doc = new DOMParser().parseFromString(html, 'text/html');

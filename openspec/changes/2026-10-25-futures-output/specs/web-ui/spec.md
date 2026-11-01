@@ -11,7 +11,7 @@ swaps or in-page disclosure). The legacy timeline tree page SHALL be excluded fr
 primary navigation and remain reachable only as a debug view.
 
 #### Scenario: Futures view renders after completion
-- **WHEN** a completed job's results are requested
+- **WHEN** a completed scenario's results are requested
 - **THEN** the page renders the overview strip, probability split, fan chart, outcome cards, and futures map without error
 
 #### Scenario: Timeline tree demoted
@@ -23,15 +23,15 @@ primary navigation and remain reachable only as a debug view.
 ### Requirement: Futures overview strip
 The futures view SHALL open with an overview strip showing the premise, the horizon
 label, the number of timelines explored, the number of distinct outcome futures, and —
-when the job completed with zero LLM calls — a visible heuristic-mode badge indicating
+when the scenario completed with zero LLM calls — a visible heuristic-mode badge indicating
 that narrative text is template-generated.
 
-#### Scenario: Completed job summary at a glance
-- **WHEN** a completed job's futures view is opened
+#### Scenario: Completed scenario summary at a glance
+- **WHEN** a completed scenario's futures view is opened
 - **THEN** the strip shows the premise, horizon, timeline count, and distinct-future count
 
 #### Scenario: Heuristic run is disclosed
-- **WHEN** a completed job recorded zero LLM calls
+- **WHEN** a completed scenario recorded zero LLM calls
 - **THEN** the strip shows a heuristic-mode badge
 
 ### Requirement: Probability split
@@ -61,7 +61,7 @@ full page load.
 - **THEN** the chart updates via htmx without a full page load
 
 #### Scenario: No stored time labels
-- **WHEN** the job has no human time labels for its steps
+- **WHEN** the scenario has no human time labels for its steps
 - **THEN** the axis labels fall back to step indices
 
 ### Requirement: Outcome cards as futures
@@ -90,8 +90,8 @@ graph contains no forks, the map SHALL render a single path.
 - **WHEN** a user selects a path on the map
 - **THEN** the path story below updates via htmx to that outcome
 
-#### Scenario: Single-path job
-- **WHEN** the job explored a single timeline with no divergence
+#### Scenario: Single-path scenario
+- **WHEN** the scenario explored a single timeline with no divergence
 - **THEN** the map renders one path with no branch points
 
 ### Requirement: Path story
@@ -107,7 +107,7 @@ particle events; when these are absent, steps SHALL be synthesized from factor m
 - **THEN** the story of the most probable outcome is shown with time-anchored steps and an early-signals callout
 
 #### Scenario: Heuristic fallback for story steps
-- **WHEN** a job has no stored step summaries or particle events
+- **WHEN** a scenario has no stored step summaries or particle events
 - **THEN** story steps are derived from factor milestones and the page does not present invented events
 
 ### Requirement: Cornerstone rationale disclosure
@@ -133,15 +133,15 @@ be hidden until expanded and MUST NOT require a full page load to reveal.
 - **THEN** the disclosure shows the data-derived rationale (factor deltas, events, turning points) and is not empty
 
 ### Requirement: Scope-aware phrasing
-Outcome names, arc summaries, and story text SHALL adapt to job scope: personal-scope
-jobs SHALL address the subject in second person, macro-scope jobs SHALL describe the
+Outcome names, arc summaries, and story text SHALL adapt to scenario scope: personal-scope
+scenarios SHALL address the subject in second person, macro-scope scenarios SHALL describe the
 system in third person. Both scopes MUST be served from the same stored data and page
 structure, differing only in phrasing.
 
 #### Scenario: Personal scope addresses the subject
-- **WHEN** a personal-scope job's futures view is rendered
+- **WHEN** a personal-scope scenario's futures view is rendered
 - **THEN** outcome and story phrasing addresses the subject as "you"
 
 #### Scenario: Macro scope describes the system
-- **WHEN** a macro-scope job's futures view is rendered
+- **WHEN** a macro-scope scenario's futures view is rendered
 - **THEN** outcome and story phrasing describes the system in third person

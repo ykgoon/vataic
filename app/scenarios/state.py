@@ -1,4 +1,4 @@
-"""Job lifecycle state machine (task 3.1)."""
+"""Scenario lifecycle state machine (task 3.1)."""
 STATES = ["DRAFT","QUEUED","INITIALIZING","RUNNING","CHECKPOINTING","RECOVERING",
           "CLUSTERING","EXPLAINING","COMPLETED","FAILED","CANCELLED","SUSPENDED"]
 TERMINAL = {"COMPLETED","FAILED","CANCELLED"}

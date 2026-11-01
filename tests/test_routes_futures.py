@@ -29,19 +29,19 @@ def _db(monkeypatch):
         except OSError: pass
 
 
-def _seed_completed_job(scope="personal"):
+def _seed_completed_scenario(scope="personal"):
     from app.db import get_conn
-    from app.jobs.repositories import create_job
+    from app.scenarios.repos import create_scenario
     from app.steps.factors import select_factors
-    jid = create_job("I am considering quitting my job to go independent.",
+    jid = create_scenario("I am considering quitting my scenario to go independent.",
                      db_path=DB, scope=scope)
     select_factors(jid, [{"id": "f0", "name": "Income Trajectory", "current": 50.0},
                          {"id": "f1", "name": "Health Energy", "current": 50.0}],
                    scope, DB)
     with get_conn(DB) as c:
-        c.execute("INSERT OR REPLACE INTO particles(id,job_id,parent_id,probability,factor_state,created_step)"
+        c.execute("INSERT OR REPLACE INTO particles(id,scenario_id,parent_id,probability,factor_state,created_step)"
                   " VALUES('pa',?,NULL,0.7,?,0)", (jid, json.dumps({"f0": 78.0, "f1": 34.0})))
-        c.execute("INSERT OR REPLACE INTO particles(id,job_id,parent_id,probability,factor_state,created_step)"
+        c.execute("INSERT OR REPLACE INTO particles(id,scenario_id,parent_id,probability,factor_state,created_step)"
                   " VALUES('pb',?,NULL,0.3,?,0)", (jid, json.dumps({"f0": 36.0, "f1": 55.0})))
         for pid, s in (("pa", [{"step_index": 0, "factor_values": {"f0": 50, "f1": 50}},
                                {"step_index": 12, "factor_values": {"f0": 78, "f1": 34}}]),
@@ -50,15 +50,15 @@ def _seed_completed_job(scope="personal"):
             for st in s:
                 c.execute("INSERT OR REPLACE INTO particle_states(particle_id,step_index,factor_values,events)"
                           " VALUES(?,?,?,'[]')", (pid, st["step_index"], json.dumps(st["factor_values"])))
-        c.execute("INSERT OR REPLACE INTO projection_steps(job_id,step_index,time_label,summary,turning_points)"
+        c.execute("INSERT OR REPLACE INTO projection_steps(scenario_id,step_index,time_label,summary,turning_points)"
                   " VALUES(?,0,'now','2 particles','[]')", (jid,))
-        c.execute("INSERT OR REPLACE INTO projection_steps(job_id,step_index,time_label,summary,turning_points)"
+        c.execute("INSERT OR REPLACE INTO projection_steps(scenario_id,step_index,time_label,summary,turning_points)"
                   " VALUES(?,12,'month 12','1 particles','[]')", (jid,))
-        c.execute("INSERT INTO outcomes(id,job_id,name,probability,band,summary,factor_states,"
+        c.execute("INSERT INTO outcomes(id,scenario_id,name,probability,band,summary,factor_states,"
                   "causal_path,indicators,assumptions,risks,explanation,representative_particle,enrichment)"
                   " VALUES('oA',?, 'Grind through',0.7,'dominant','Income rises while health pays for it.',"
                   "'{}','[]','[\"Income crosses its baseline by month 6\"]','[]','[]','','pa','{}')", (jid,))
-        c.execute("INSERT INTO outcomes(id,job_id,name,probability,band,summary,factor_states,"
+        c.execute("INSERT INTO outcomes(id,scenario_id,name,probability,band,summary,factor_states,"
                   "causal_path,indicators,assumptions,risks,explanation,representative_particle,enrichment)"
                   " VALUES('oB',?, 'Stall out',0.3,'plausible','Income drifts below baseline.',"
                   "'{}','[]','[]','[]','[]','','pb','{}')", (jid,))
@@ -66,13 +66,13 @@ def _seed_completed_job(scope="personal"):
                   " VALUES('oA','pa',0.7)")
         c.execute("INSERT OR IGNORE INTO outcome_particle_memberships(outcome_id,particle_id,weight)"
                   " VALUES('oB','pb',0.3)")
-        c.execute("UPDATE projection_jobs SET status='COMPLETED' WHERE id=?", (jid,))
+        c.execute("UPDATE projection_scenarios SET status='COMPLETED' WHERE id=?", (jid,))
     return jid
 
 
 def test_futures_view_renders_all_sections():
     from app import create_app
-    jid = _seed_completed_job("personal")
+    jid = _seed_completed_scenario("personal")
     app = create_app({"TESTING": True})
     cl = app.test_client()
     r = cl.get(f"/results/{jid}")
@@ -102,7 +102,7 @@ def test_futures_view_renders_all_sections():
 
 def test_macro_scope_phrasing():
     from app import create_app
-    jid = _seed_completed_job("macro")
+    jid = _seed_completed_scenario("macro")
     app = create_app({"TESTING": True})
     cl = app.test_client()
     body = cl.get(f"/results/{jid}").get_data(as_text=True)
@@ -112,7 +112,7 @@ def test_macro_scope_phrasing():
 
 def test_fan_and_story_partials():
     from app import create_app
-    jid = _seed_completed_job("personal")
+    jid = _seed_completed_scenario("personal")
     app = create_app({"TESTING": True})
     cl = app.test_client()
     r = cl.get(f"/results/{jid}/fan?factor=f1")
@@ -130,7 +130,7 @@ def test_fan_and_story_partials():
 
 def test_rationale_missing_branch_is_graceful():
     from app import create_app
-    jid = _seed_completed_job("personal")
+    jid = _seed_completed_scenario("personal")
     app = create_app({"TESTING": True})
     cl = app.test_client()
     r = cl.get(f"/results/{jid}/rationale?bp=5")
@@ -141,9 +141,9 @@ def test_rationale_missing_branch_is_graceful():
 def test_legacy_fallback_for_incomplete_job():
     from app import create_app
     from app.db import get_conn
-    jid = _seed_completed_job("personal")
+    jid = _seed_completed_scenario("personal")
     with get_conn(DB) as c:
-        c.execute("UPDATE projection_jobs SET status='RUNNING' WHERE id=?", (jid,))
+        c.execute("UPDATE projection_scenarios SET status='RUNNING' WHERE id=?", (jid,))
     app = create_app({"TESTING": True})
     cl = app.test_client()
     r = cl.get(f"/results/{jid}")
@@ -155,19 +155,19 @@ def test_legacy_fallback_for_incomplete_job():
 
 
 def test_new_futures_view_renders_all_sections():
-    """Cross-check with a job completed through the real synthesis path."""
+    """Cross-check with a scenario completed through the real synthesis path."""
     from app import create_app
     from app.db import get_conn
-    from app.jobs.repositories import create_job
+    from app.scenarios.repos import create_scenario
     from app.steps.factors import select_factors
     from app.steps.synthesis import synthesize
-    jid = create_job("channel premise", db_path=DB)
+    jid = create_scenario("channel premise", db_path=DB)
     select_factors(jid, [{"id": "f0", "name": "Reputation", "current": 50.0}], "macro", DB)
     parts = [{"id": "p0", "factor_state": {"f0": 80.0}, "probability": 0.75},
              {"id": "p1", "factor_state": {"f0": 30.0}, "probability": 0.25}]
     synthesize(jid, parts, 2, db_path=DB, premise="channel premise")
     with get_conn(DB) as c:
-        c.execute("UPDATE projection_jobs SET status='COMPLETED' WHERE id=?", (jid,))
+        c.execute("UPDATE projection_scenarios SET status='COMPLETED' WHERE id=?", (jid,))
     app = create_app({"TESTING": True})
     cl = app.test_client()
     r = cl.get(f"/results/{jid}")

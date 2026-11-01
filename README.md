@@ -14,7 +14,7 @@ uv run python scripts/smoke_test.py
 
 ## Architecture
 Flask + htmx, SQLite (WAL) system of record, `data/artifacts/` for blobs,
-in-process projection worker (`ProjectionJobWorkflow`) with per-step DB checkpoints,
+in-process projection worker (`ProjectionScenarioWorkflow`) with per-step DB checkpoints,
 OpenAI-compatible `LLMClient` with cache + retry + role routing,
 numpy/sklearn clustering, SVG/htmx result explorer.
 

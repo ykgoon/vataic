@@ -2,7 +2,7 @@
 import json, uuid
 from app.db import get_conn
 
-def create_subject(job_id: str, profile: dict, db_path=None) -> str:
+def create_subject(scenario_id: str, profile: dict, db_path=None) -> str:
     sid = uuid.uuid4().hex[:12]
     assumptions = []
     for f in ("risk_tolerance", "goals", "values_s", "support_system"):
@@ -10,7 +10,7 @@ def create_subject(job_id: str, profile: dict, db_path=None) -> str:
             assumptions.append(f"{f} defaulted")
     if not profile.get("risk_tolerance"): profile["risk_tolerance"] = "moderate"
     with get_conn(db_path) as c:
-        c.execute("INSERT INTO subjects(id,job_id,privacy) VALUES(?,?, 'private')", (sid, job_id))
+        c.execute("INSERT INTO subjects(id,scenario_id,privacy) VALUES(?,?, 'private')", (sid, scenario_id))
         c.execute("""INSERT OR REPLACE INTO subject_profiles(subject_id,facts,goals,constraints_s,
           values_s,risk_tolerance,agency,support_system,unknowns,assumptions)
           VALUES(?,?,?,?,?,?,?,?,?,?)""",
@@ -21,17 +21,17 @@ def create_subject(job_id: str, profile: dict, db_path=None) -> str:
            json.dumps(assumptions)))
     return sid
 
-def get_subject(job_id: str, db_path=None) -> dict | None:
+def get_subject(scenario_id: str, db_path=None) -> dict | None:
     with get_conn(db_path) as c:
         r = c.execute("""SELECT s.*, p.* FROM subjects s LEFT JOIN subject_profiles p
-          ON p.subject_id=s.id WHERE s.job_id=?""", (job_id,)).fetchone()
+          ON p.subject_id=s.id WHERE s.scenario_id=?""", (scenario_id,)).fetchone()
         return dict(r) if r else None
 
-def delete_personal(job_id: str, db_path=None) -> None:
+def delete_personal(scenario_id: str, db_path=None) -> None:
     with get_conn(db_path) as c:
-        c.execute("DELETE FROM subjects WHERE job_id=?", (job_id,))
-        c.execute("DELETE FROM personal_factor_states WHERE job_id=?", (job_id,))
-        c.execute("DELETE FROM personal_events WHERE job_id=?", (job_id,))
+        c.execute("DELETE FROM subjects WHERE scenario_id=?", (scenario_id,))
+        c.execute("DELETE FROM personal_factor_states WHERE scenario_id=?", (scenario_id,))
+        c.execute("DELETE FROM personal_events WHERE scenario_id=?", (scenario_id,))
 
 def personal_stopping(factors: dict, settings: dict) -> str | None:
     sl = settings.get("stop_loss")

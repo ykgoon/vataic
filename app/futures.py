@@ -2,9 +2,9 @@
 and rationale inputs — deterministic from stored data, no LLM required.
 
 Implements openspec/changes/2026-10-25-futures-output (outcome-synthesis
-delta): a versioned `futures_view` artifact is written at job completion,
-lazily healed for legacy completed jobs, and rebuilt when the job row
-changes. Artifact failure never fails a job or a results view.
+delta): a versioned `futures_view` artifact is written at scenario completion,
+lazily healed for legacy completed scenarios, and rebuilt when the scenario row
+changes. Artifact failure never fails a scenario or a results view.
 """
 import json
 import re
@@ -38,47 +38,47 @@ def _j(value, limit=8):
 
 
 def possessive(scope: str, name: str) -> str:
-    """Scope-aware phrasing: personal jobs address the subject ('your X'),
-    macro jobs describe the system in third person ('X')."""
+    """Scope-aware phrasing: personal scenarios address the subject ('your X'),
+    macro scenarios describe the system in third person ('X')."""
     return f"your {name}" if (scope or "macro") == "personal" else name
 
 
 # ---------------------------------------------------------------- loading
 
-def _load_job_data(jid: str, db_path=None):
+def _load_scenario_data(jid: str, db_path=None):
     with get_conn(db_path) as c:
-        job = c.execute(
+        scenario = c.execute(
             "SELECT id, premise, scope, horizon, status, outcome_count, updated_at "
-            "FROM projection_jobs WHERE id=?", (jid,)).fetchone()
+            "FROM projection_scenarios WHERE id=?", (jid,)).fetchone()
         outcomes = [dict(r) for r in c.execute(
-            "SELECT * FROM outcomes WHERE job_id=? ORDER BY probability DESC", (jid,))]
+            "SELECT * FROM outcomes WHERE scenario_id=? ORDER BY probability DESC", (jid,))]
         members: dict[str, list[str]] = {}
         for r in c.execute(
                 """SELECT m.outcome_id, m.particle_id FROM outcome_particle_memberships m
-                   JOIN outcomes o ON o.id=m.outcome_id WHERE o.job_id=?""", (jid,)):
+                   JOIN outcomes o ON o.id=m.outcome_id WHERE o.scenario_id=?""", (jid,)):
             members.setdefault(r["outcome_id"], []).append(r["particle_id"])
         particles = {r["id"]: dict(r) for r in c.execute(
             "SELECT id, parent_id, probability, created_step, status "
-            "FROM particles WHERE job_id=?", (jid,))}
+            "FROM particles WHERE scenario_id=?", (jid,))}
         states: dict[str, list[dict]] = {}
         for r in c.execute(
                 """SELECT ps.particle_id, ps.step_index, ps.factor_values, ps.events
                    FROM particle_states ps JOIN particles p ON p.id=ps.particle_id
-                   WHERE p.job_id=? ORDER BY ps.step_index""", (jid,)):
+                   WHERE p.scenario_id=? ORDER BY ps.step_index""", (jid,)):
             states.setdefault(r["particle_id"], []).append(dict(r))
         steps = [dict(r) for r in c.execute(
             "SELECT step_index, time_label, summary, turning_points "
-            "FROM projection_steps WHERE job_id=? ORDER BY step_index", (jid,))]
+            "FROM projection_steps WHERE scenario_id=? ORDER BY step_index", (jid,))]
         llm_calls = c.execute(
-            "SELECT COUNT(*) AS n FROM llm_calls WHERE job_id=?", (jid,)).fetchone()["n"]
-    return job, outcomes, members, particles, states, steps, llm_calls
+            "SELECT COUNT(*) AS n FROM llm_calls WHERE scenario_id=?", (jid,)).fetchone()["n"]
+    return scenario, outcomes, members, particles, states, steps, llm_calls
 
 
 def _baseline(jid: str, db_path=None) -> tuple[dict, float]:
     """Baseline factor values (world_states step 0), defaulting to 50.0."""
     with get_conn(db_path) as c:
         r = c.execute(
-            "SELECT factor_values FROM world_states WHERE job_id=? "
+            "SELECT factor_values FROM world_states WHERE scenario_id=? "
             "ORDER BY step_index LIMIT 1", (jid,)).fetchone()
     try:
         fv = json.loads(r["factor_values"]) if r else {}
@@ -199,7 +199,7 @@ def _sibling_factor_deltas(groups: list, states: dict, names: dict) -> list[dict
 def detect_branch_points(particles: dict, particle_outcome: dict, states: dict,
                          steps: list[dict], names: dict) -> list[dict]:
     """Branch points = steps where sibling timelines permanently diverged,
-    i.e. siblings' descendant sets end in different outcomes. Jobs whose
+    i.e. siblings' descendant sets end in different outcomes. Scenarios whose
     particles never diverge yield []."""
     children: dict[str, list[tuple[str, int]]] = {}
     for pid, p in particles.items():
@@ -426,11 +426,11 @@ def derive_story(oid: str, rep_pid: str, states: dict, steps: list[dict],
 # ---------------------------------------------------------------- build/save
 
 def build_futures_view(jid: str, db_path=None) -> dict | None:
-    from app.present import factor_names_for_job
-    job, outcomes, members, particles, states, steps, llm_calls = _load_job_data(jid, db_path)
-    if not job:
+    from app.present import factor_names_for_scenario
+    scenario, outcomes, members, particles, states, steps, llm_calls = _load_scenario_data(jid, db_path)
+    if not scenario:
         return None
-    names = factor_names_for_job(jid, db_path)
+    names = factor_names_for_scenario(jid, db_path)
     baseline, base_default = _baseline(jid, db_path)
 
     def base_of(k):
@@ -442,7 +442,7 @@ def build_futures_view(jid: str, db_path=None) -> dict | None:
         for pid in pids:
             particle_outcome.setdefault(pid, oid)
     branch_points = detect_branch_points(particles, particle_outcome, states, steps, names)
-    scope = job["scope"] if "scope" in job.keys() else "macro"
+    scope = scenario["scope"] if "scope" in scenario.keys() else "macro"
 
     out_rows = []
     sources = []
@@ -484,11 +484,11 @@ def build_futures_view(jid: str, db_path=None) -> dict | None:
     dominant = max(sources, key=lambda s: (s == "events", s == "steps")) if sources else "milestones"
     return {
         "version": ARTIFACT_VERSION,
-        "job_id": jid,
-        "premise": job["premise"],
+        "scenario_id": jid,
+        "premise": scenario["premise"],
         "scope": scope,
-        "horizon": job["horizon"] if "horizon" in job.keys() else "auto",
-        "job_updated_at": job["updated_at"],
+        "horizon": scenario["horizon"] if "horizon" in scenario.keys() else "auto",
+        "job_updated_at": scenario["updated_at"],
         "heuristic_mode": llm_calls == 0,
         "timelines_explored": len(particles),
         "story_source": dominant,
@@ -509,14 +509,14 @@ def save_futures_view(jid: str, payload: dict, db_path=None) -> dict:
 
 def load_futures_view(jid: str, db_path=None, heal: bool = True) -> dict | None:
     """Load the newest futures_view artifact; lazily build+persist for
-    completed jobs that predate it; rebuild when the job row changed or the
+    completed scenarios that predate it; rebuild when the scenario row changed or the
     artifact version differs. Never raises."""
     with get_conn(db_path) as c:
-        job = c.execute("SELECT status, updated_at FROM projection_jobs WHERE id=?",
+        scenario = c.execute("SELECT status, updated_at FROM projection_scenarios WHERE id=?",
                         (jid,)).fetchone()
-        if not job:
+        if not scenario:
             return None
-        r = c.execute("""SELECT path FROM artifacts WHERE job_id=? AND kind=?
+        r = c.execute("""SELECT path FROM artifacts WHERE scenario_id=? AND kind=?
                          ORDER BY created_at DESC, rowid DESC LIMIT 1""",
                       (jid, ARTIFACT_KIND)).fetchone()
     payload = None
@@ -527,10 +527,10 @@ def load_futures_view(jid: str, db_path=None, heal: bool = True) -> dict | None:
         except Exception:
             payload = None
     stale = payload is not None and (
-        payload.get("job_updated_at") != job["updated_at"]
+        payload.get("job_updated_at") != scenario["updated_at"]
         or payload.get("version") != ARTIFACT_VERSION)
     if payload is None or stale:
-        if not heal or job["status"] != "COMPLETED":
+        if not heal or scenario["status"] != "COMPLETED":
             return payload
         try:
             built = build_futures_view(jid, db_path)

@@ -3,21 +3,21 @@
 ## ADDED Requirements
 
 ### Requirement: Futures-view artifact
-On job completion, the system SHALL persist a versioned futures-view artifact containing,
+On scenario completion, the system SHALL persist a versioned futures-view artifact containing,
 per outcome: aggregate trajectories (mean, minimum, and maximum per active factor at each
 step across the outcome's member particles), the member particle identifiers with their
 weights, end-state deltas versus the baseline, and the detected branch-point list. The
 artifact SHALL be stored through the existing artifacts mechanism and SHALL be optional
-for job execution: a missing artifact MUST NOT fail a job. Completed jobs that predate
+for scenario execution: a missing artifact MUST NOT fail a scenario. Completed scenarios that predate
 the artifact SHALL be healed lazily — the artifact is computed on first view and
 persisted.
 
 #### Scenario: Artifact written at completion
-- **WHEN** a job reaches the COMPLETED state
+- **WHEN** a scenario reaches the COMPLETED state
 - **THEN** a versioned futures-view artifact exists with per-outcome trajectories, member lists, end-state deltas, and branch points
 
-#### Scenario: Legacy job healed on first view
-- **WHEN** a completed job has no futures-view artifact and its results are requested
+#### Scenario: Legacy scenario healed on first view
+- **WHEN** a completed scenario has no futures-view artifact and its results are requested
 - **THEN** the artifact is computed deterministically from stored particle data, persisted, and used to render the page
 
 ### Requirement: Branch-point extraction
@@ -26,7 +26,7 @@ is a step at which active timelines split such that their descendants end in dif
 outcomes, or at which an outcome's representative lineage diverges from sibling
 timelines. Each branch point SHALL record the step index, the outcomes involved, the
 per-factor state deltas at the fork, and any stored events or turning points at that
-step, as rationale inputs for the futures view. Jobs whose particles never diverge SHALL
+step, as rationale inputs for the futures view. Scenarios whose particles never diverge SHALL
 yield an empty branch-point list.
 
 #### Scenario: Permanent divergence detected
@@ -38,5 +38,5 @@ yield an empty branch-point list.
 - **THEN** the branch point is still recorded with its factor deltas so the UI can render a data-derived rationale
 
 #### Scenario: No divergence
-- **WHEN** a job's particle graph has no divergence
+- **WHEN** a scenario's particle graph has no divergence
 - **THEN** the branch-point list is empty and the futures view renders a single path

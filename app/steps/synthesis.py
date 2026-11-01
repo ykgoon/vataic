@@ -148,7 +148,7 @@ def cluster(particles: list[dict], n_outcomes: int = 7) -> list[list[dict]]:
 
 def _deterministic_enrich(o: dict, db_path=None, names: dict | None = None) -> dict:
     """Populate causal_path, indicators, assumptions, risks deterministically
-    from the representative particle's factor state and the job's causal graph.
+    from the representative particle's factor state and the scenario's causal graph.
 
     No LLM. Keeps outcomes explainable from stored traces even without an
     LLM provider.
@@ -180,7 +180,7 @@ def _deterministic_enrich(o: dict, db_path=None, names: dict | None = None) -> d
     return o
 
 
-def llm_cluster_labels(job_id: str, premise: str, groups: list[list[dict]],
+def llm_cluster_labels(scenario_id: str, premise: str, groups: list[list[dict]],
                        names: dict, db_path=None) -> dict | None:
     """LLM naming of clustered outcomes (llm-gateway ClusterOut phase).
     Returns {outcome-index: {name, summary}} or None when unavailable."""
@@ -194,7 +194,7 @@ def llm_cluster_labels(job_id: str, premise: str, groups: list[list[dict]],
                                                 reverse=True)[:6])
         payload = [{"cluster": i, "timelines": len(g), "end_state": _desc(g)}
                    for i, g in enumerate(groups)]
-        out = LLMClient(db_path=db_path).chat(job_id, "cluster", [
+        out = LLMClient(db_path=db_path).chat(scenario_id, "cluster", [
             {"role": "system", "content":
              "Given a scenario premise and clustered end-states of explored timelines, "
              "name each cluster and give a one-sentence summary of how that future "
@@ -217,12 +217,12 @@ def llm_cluster_labels(job_id: str, premise: str, groups: list[list[dict]],
         return None
 
 
-def synthesize(job_id: str, particles: list[dict], n_outcomes: int = 7,
+def synthesize(scenario_id: str, particles: list[dict], n_outcomes: int = 7,
                personal: dict | None = None, db_path=None,
                premise: str = "") -> list[dict]:
     from app.db import get_conn
     groups = cluster(particles, n_outcomes)
-    llm_labels = llm_cluster_labels(job_id, premise, groups, names=_human_factor_names(db_path),
+    llm_labels = llm_cluster_labels(scenario_id, premise, groups, names=_human_factor_names(db_path),
                                     db_path=db_path) if (premise and len(groups) > 1) else None
     total = sum(p.get("probability", 0) for p in particles) or 1.0
     names = _human_factor_names(db_path)
@@ -269,15 +269,15 @@ def synthesize(job_id: str, particles: list[dict], n_outcomes: int = 7,
         for g in groups:
             for p in g:
                 if p.get("id"):
-                    c.execute("""INSERT OR IGNORE INTO particles(id,job_id,probability,factor_state,created_step)
+                    c.execute("""INSERT OR IGNORE INTO particles(id,scenario_id,probability,factor_state,created_step)
                       VALUES(?,?,?, ?,0)""",
-                      (p["id"], job_id, p.get("probability", 0),
+                      (p["id"], scenario_id, p.get("probability", 0),
                        json.dumps(p.get("factor_state", {}))))
         for o in outcomes:
-            c.execute("""INSERT OR REPLACE INTO outcomes(id,job_id,name,probability,band,summary,
+            c.execute("""INSERT OR REPLACE INTO outcomes(id,scenario_id,name,probability,band,summary,
               factor_states,causal_path,indicators,assumptions,risks,explanation,
               representative_particle,enrichment) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-              (o["id"], job_id, o["name"], o["probability"], o["band"], o["summary"],
+              (o["id"], scenario_id, o["name"], o["probability"], o["band"], o["summary"],
                json.dumps(o["factor_states"]), json.dumps(o["causal_path"]),
                json.dumps(o["indicators"]), json.dumps(o["assumptions"]),
                json.dumps(o["risks"]), o["explanation"], o["representative"],
@@ -287,12 +287,12 @@ def synthesize(job_id: str, particles: list[dict], n_outcomes: int = 7,
                   (outcome_id,particle_id,weight) VALUES(?,?,?)""", (o["id"], pid, o["probability"]))
     return outcomes
 
-def explain(outcome: dict, use_llm=False, job_id="", db_path=None,
+def explain(outcome: dict, use_llm=False, scenario_id="", db_path=None,
             premise: str = "") -> dict:
     if use_llm:
         try:
             from app.llm.client import LLMClient, model_for_phase
-            r = LLMClient(db_path=db_path).chat(job_id or "x", "explanation", [
+            r = LLMClient(db_path=db_path).chat(scenario_id or "x", "explanation", [
                 {"role": "system", "content":
                  "You are explaining one scenario-projection outcome to a non-technical reader. "
                  "Given the outcome JSON, return JSON with keys: explanation (a clear paragraph: "
