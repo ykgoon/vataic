@@ -45,10 +45,16 @@ def _pending(jid: str) -> bool:
     return bool(r and r[0])
 
 
+def panel_context(jid: str) -> dict:
+    """Template context for the chat panel (detail page include + htmx swaps)."""
+    return {"scenario_id": jid, "messages": _messages(jid), "pending": _pending(jid),
+            "error": ""}
+
+
 def _panel(jid: str, error: str = "") -> str:
-    return render_template("scenarios/chat_panel.html",
-                           scenario_id=jid, messages=_messages(jid),
-                           pending=_pending(jid), error=error)
+    ctx = panel_context(jid)
+    ctx["error"] = error
+    return render_template("scenarios/chat_panel.html", chat=ctx)
 
 
 def _build_context(jid: str) -> str:

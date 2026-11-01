@@ -6,21 +6,21 @@ Branching projection loop over consequential factors with causal graph, adaptive
 ## Requirements
 
 ### Requirement: Consequential factor selection
-The system SHALL select a finite set of consequential factors for each job from domain-agnostic impact surfaces (e.g., physical environment, biology, population, resources, economy, governance, security, technology, information, culture, psychology, institutions, geography, time). Factors SHALL be scored for importance using a weighted formula of direct impact, cascading effect, uncertainty, policy/law relevance, and observability. The retained factor count MUST stay within a configurable limit (default 8–15; up to 20 for complex scenarios), with discarded candidates recorded in a weak-signal watchlist.
+The system SHALL select a finite set of consequential factors for each scenario from domain-agnostic impact surfaces (e.g., physical environment, biology, population, resources, economy, governance, security, technology, information, culture, psychology, institutions, geography, time). Factors SHALL be scored for importance using a weighted formula of direct impact, cascading effect, uncertainty, policy/law relevance, and observability. The retained factor count MUST stay within a configurable limit (default 8–15; up to 20 for complex scenarios), with discarded candidates recorded in a weak-signal watchlist.
 
 #### Scenario: Factors limited to configured maximum
 - **WHEN** factor selection returns more candidates than the configured maximum
 - **THEN** only the top-scoring factors are retained and the remainder are stored on a weak-signal watchlist
 
 #### Scenario: Domain-agnostic selection
-- **WHEN** a job is created for a non-economic premise such as "The internet fractures into national intranets"
+- **WHEN** a scenario is created for a non-economic premise such as "The internet fractures into national intranets"
 - **THEN** selected factors are drawn from whatever impact surfaces apply to that premise rather than a fixed economic list
 
 ### Requirement: Factor typing
 Each selected factor SHALL carry an identifier, a display name, a type (numeric index, continuous value, categorical, boolean, or event-based), a normalized value range, current value, baseline value, trend, momentum, volatility, and importance score. Factor values SHALL be normalized so different factors are comparable for distance and clustering computations.
 
 #### Scenario: Factor record shape
-- **WHEN** a factor is selected for a projection job
+- **WHEN** a factor is selected for a projection scenario
 - **THEN** the stored factor record includes id, name, type, range, current value, baseline, trend, momentum, volatility, and importance score
 
 ### Requirement: Causal graph construction
@@ -35,7 +35,7 @@ The system SHALL build a causal graph over the selected factors, where edges car
 - **THEN** the graph is flagged and the critic step requests a revision before projection proceeds
 
 ### Requirement: Initial world state
-The system SHALL construct an initial world state at time T0 with a value for every selected factor, sourced from known facts, retrieved knowledge, or recorded user assumptions. The initial state MUST be persisted and versioned with the job.
+The system SHALL construct an initial world state at time T0 with a value for every selected factor, sourced from known facts, retrieved knowledge, or recorded user assumptions. The initial state MUST be persisted and versioned with the scenario.
 
 #### Scenario: Initial state persisted
 - **WHEN** the initial world state is constructed
@@ -61,7 +61,7 @@ Each projection cycle SHALL, for every active particle: build a compressed conte
 
 #### Scenario: Interrupted after step save
 - **WHEN** a worker crashes after a step is persisted but before continuing
-- **THEN** the job resumes from the next step index rather than recomputing the saved step
+- **THEN** the scenario resumes from the next step index rather than recomputing the saved step
 
 ### Requirement: Branching control
 The system SHALL branch a particle into child particles only when a development is probabilistically meaningful AND consequentially different, per configurable thresholds. A low-probability high-impact development MUST be retained as a tail-risk branch. The engine MUST NOT branch on low-probability low-impact developments.
@@ -97,8 +97,8 @@ The projection loop SHALL stop when any configured stopping condition becomes tr
 - **THEN** the loop ends early even if the horizon has not been reached
 
 ### Requirement: Budget enforcement
-The system SHALL enforce hard budget caps on every job (max steps, max active branches, max LLM calls, max tokens, max runtime) and SHALL terminate a job with a COMPLETED or FAILED terminal state when a cap is exceeded rather than continuing indefinitely.
+The system SHALL enforce hard budget caps on every scenario (max steps, max active branches, max LLM calls, max tokens, max runtime) and SHALL terminate a scenario with a COMPLETED or FAILED terminal state when a cap is exceeded rather than continuing indefinitely.
 
 #### Scenario: LLM budget exhausted
-- **WHEN** a job's LLM call budget is exhausted before projection completes
-- **THEN** the job finalizes with the outcomes reached so far or transitions to FAILED with the budget reason recorded
+- **WHEN** a scenario's LLM call budget is exhausted before projection completes
+- **THEN** the scenario finalizes with the outcomes reached so far or transitions to FAILED with the budget reason recorded

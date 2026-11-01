@@ -31,7 +31,7 @@ The gateway SHALL retry failed provider calls with exponential backoff up to a c
 - **THEN** the gateway retries with backoff and the activity only fails after the retry budget is exhausted
 
 ### Requirement: Request hashing and caching
-The gateway SHALL compute a deterministic content hash of each request (payload, model, seed, phase) and use it as a cache key against stored responses. A cache hit MUST be returned without a provider call. Cache reads and writes SHALL be idempotent and SHALL survive job resume.
+The gateway SHALL compute a deterministic content hash of each request (payload, model, seed, phase) and use it as a cache key against stored responses. A cache hit MUST be returned without a provider call. Cache reads and writes SHALL be idempotent and SHALL survive scenario resume.
 
 #### Scenario: Cache hit on resume
 - **WHEN** a resumed projection step requests a response whose (hash, model, seed) already has a stored response

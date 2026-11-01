@@ -1,16 +1,16 @@
-<div id="chat-panel" class="chat-panel"{% if pending %} hx-get="/scenarios/{{ scenario_id }}/chat" hx-trigger="every 2s" hx-target="#chat-panel" hx-swap="outerHTML"{% endif %}>
+<div id="chat-panel" class="chat-panel"{% if chat.pending %} hx-get="/scenarios/{{ chat.scenario_id }}/chat" hx-trigger="every 2s" hx-target="#chat-panel" hx-swap="outerHTML"{% endif %}>
   <div class="chat-header">
     <h2>Ask about this scenario</h2>
-    {% if messages %}
-    <button hx-post="/scenarios/{{ scenario_id }}/chat/clear"
+    {% if chat.messages %}
+    <button hx-post="/scenarios/{{ chat.scenario_id }}/chat/clear"
             hx-target="#chat-panel" hx-swap="outerHTML"
             hx-confirm="Clear the conversation?"
             class="btn btn-sm btn-secondary">Clear</button>
     {% endif %}
   </div>
-  {% if error %}<div class="chat-error">{{ error }}</div>{% endif %}
+  {% if chat.error %}<div class="chat-error">{{ chat.error }}</div>{% endif %}
   <div class="chat-history">
-    {% for m in messages %}
+    {% for m in chat.messages %}
       {% if m.role == "user" %}
       <div class="chat-message chat-user">
         <span class="chat-role">You</span>
@@ -36,7 +36,7 @@
     <p class="chat-empty muted">Ask anything about this scenario &mdash; outcomes, factors, branches, or what the numbers mean.</p>
     {% endfor %}
   </div>
-  <form class="chat-input" hx-post="/scenarios/{{ scenario_id }}/chat"
+  <form class="chat-input" hx-post="/scenarios/{{ chat.scenario_id }}/chat"
         hx-target="#chat-panel" hx-swap="outerHTML">
     <input type="text" name="message" placeholder="Ask about this scenario&hellip;" autocomplete="off" required>
     <button type="submit" class="btn btn-primary">Send</button>

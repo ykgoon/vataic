@@ -38,8 +38,8 @@ Each LLM projection-step call SHALL receive a compact JSON context with exactly 
 - **THEN** epoch summary detail is reduced until the context fits, while the scenario card, turning points, and factor state remain intact
 
 ### Requirement: Memory durability
-All memory tiers and their versions SHALL be stored persistently per job (and per particle where applicable) so a resumed job reconstructs an identical compressed context to the one that existed before the interruption.
+All memory tiers and their versions SHALL be stored persistently per scenario (and per particle where applicable) so a resumed scenario reconstructs an identical compressed context to the one that existed before the interruption.
 
 #### Scenario: Context reproducible after resume
-- **WHEN** a job resumes from a checkpoint
+- **WHEN** a scenario resumes from a checkpoint
 - **THEN** the compressed context for the next step is reconstructed identically from persisted tier data and cached LLM calls are reusable

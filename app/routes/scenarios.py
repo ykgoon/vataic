@@ -143,8 +143,10 @@ def detail(jid):
     except Exception:
         eta_text = "n/a"
 
+    from app.routes.chat import panel_context
     return render_template("scenarios/detail.html",
         scenario=j, checkpoint=cp, budget=b,
+        chat=panel_context(jid),
         progress_pct=progress_pct, elapsed_text=elapsed_text,
         outcomes=outcome_rows,
         llm_calls=llm_calls, llm_tokens=llm_tokens,
