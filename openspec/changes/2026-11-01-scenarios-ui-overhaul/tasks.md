@@ -2,7 +2,7 @@
 
 ## 1. Rename job → scenario
 
-- [ ] 1.1 OpenSpec change committed (proposal, design, tasks, delta specs)
+- [x] 1.1 OpenSpec change committed (proposal, design, tasks, delta specs)
 - [ ] 1.2 Mechanical sweep: dirs/files renamed, seds applied, README + specs text updated
 - [ ] 1.3 Full test suite green after the rename; UI shows scenario terminology
 
