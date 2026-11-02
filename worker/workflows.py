@@ -378,6 +378,10 @@ def act_explain(inp: dict) -> dict:
             cur = get_scenario(jid)
             if not cur or cur.get("status") in ("CANCELLED", "SUSPENDED"):
                 return {"explained": "aborted"}
+            # Recovery re-entry: outcomes explained before the crash keep
+            # their explanations; only fill the gaps.
+            if (r.get("explanation") or "").strip():
+                continue
             # Pass the full outcome context so the LLM (or narrative fallback)
             # can reason about factor states, not just the name.
             def _j(v):
