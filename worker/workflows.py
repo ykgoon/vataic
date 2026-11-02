@@ -342,6 +342,14 @@ def act_cluster(inp: dict) -> dict:
     from app.db import get_conn
     jid = inp["scenario_id"]
     scenario = get_scenario(jid) or {}
+    # Idempotent under recovery: synthesize mints fresh outcome ids on every
+    # call, so a crash after a partial/complete cluster followed by a re-run
+    # would duplicate outcome rows. Clear any previous attempt (memberships
+    # cascade from outcomes) and rebuild deterministically from particles.
+    with get_conn() as c:
+        c.execute("""DELETE FROM outcome_particle_memberships
+          WHERE outcome_id IN (SELECT id FROM outcomes WHERE scenario_id=?)""", (jid,))
+        c.execute("DELETE FROM outcomes WHERE scenario_id=?", (jid,))
     with get_conn() as c:
         parts = [dict(r) for r in c.execute(
             "SELECT id, probability, factor_state FROM particles WHERE scenario_id=?", (jid,))]
@@ -363,6 +371,13 @@ def act_explain(inp: dict) -> dict:
     with get_conn() as c:
         rows = [dict(r) for r in c.execute("SELECT * FROM outcomes WHERE scenario_id=?", (jid,))]
         for r in rows:
+            # Abort promptly when the user cancels/deletes mid-explain:
+            # don't keep burning LLM calls for a scenario they walked
+            # away from. (Deletes remove the row; cancels leave it
+            # CANCELLED — either way we stop and return.)
+            cur = get_scenario(jid)
+            if not cur or cur.get("status") in ("CANCELLED", "SUSPENDED"):
+                return {"explained": "aborted"}
             # Pass the full outcome context so the LLM (or narrative fallback)
             # can reason about factor states, not just the name.
             def _j(v):
@@ -448,26 +463,58 @@ class ProjectionScenarioWorkflow:
                                jid, to_state, e)
 
         try:
-            _to("INITIALIZING", "worker picked up scenario")
-            _to("RUNNING", "starting projection")
+            # Recovery-aware entry: scan_recoverable() can now hand us
+            # scenarios parked in INITIALIZING/CLUSTERING/EXPLAINING after a
+            # worker died mid-phase. Re-drive them from the phase they died
+            # in instead of failing on strict edges (e.g. EXPLAINING ->
+            # INITIALIZING is not an allowed transition; _to() logs and
+            # continues when an edge is redundant). User cancel/suspend is
+            # honoured at every boundary: entry, each loop step, and before
+            # the post-loop phases, so a cancelled scenario never finalizes.
+            def _st() -> str:
+                # A missing row means the scenario was deleted while running:
+                # treat as cancelled so the loop aborts at the next boundary
+                # instead of erroring through the pipeline.
+                j = get_scenario_row(jid)
+                return j.get("status", "") if j else "CANCELLED"
 
-            # Pre-loop activities (parse, factors, causal, world state).
-            act_parse(ctx)
-            act_factors(ctx)
-            act_causal(ctx)
-            act_init_state(ctx)
+            start = _st()
+            if start in ("CANCELLED", "SUSPENDED"):
+                return {"status": start}
+            if start != "EXPLAINING":
+                if start != "CLUSTERING":
+                    _to("INITIALIZING", "worker picked up scenario")
+                    _to("RUNNING", "starting projection")
 
-            # Projection loop: checkpoint is the natural boundary.
-            while True:
-                out = act_loop_step(ctx)
-                if out.get("stop_reason"):
-                    break
+                    # Pre-loop activities (parse, factors, causal, world state).
+                    act_parse(ctx)
+                    act_factors(ctx)
+                    act_causal(ctx)
+                    act_init_state(ctx)
 
-            # Post-loop: cluster, explain, finalize.
-            _to("CLUSTERING", "loop complete, clustering outcomes")
-            act_cluster(ctx)
-            _to("EXPLAINING", "explaining outcomes")
+                    # Projection loop: checkpoint is the natural boundary.
+                    while True:
+                        st = _st()
+                        if st in ("CANCELLED", "SUSPENDED"):
+                            return {"status": st}
+                        out = act_loop_step(ctx)
+                        if out.get("stop_reason"):
+                            break
+
+                    if _st() in ("CANCELLED", "SUSPENDED"):
+                        return {"status": _st()}
+                # Post-loop: cluster, explain, finalize. act_cluster clears
+                # any partial previous attempt, so re-entry is safe.
+                _to("CLUSTERING", "loop complete, clustering outcomes")
+                act_cluster(ctx)
+                _to("EXPLAINING", "explaining outcomes")
             act_explain(ctx)
+            # Honour a cancel/delete that landed during explaining: never
+            # finalize a scenario the user has walked away from (_st()
+            # returns CANCELLED for a deleted row too).
+            st = _st()
+            if st in ("CANCELLED", "SUSPENDED"):
+                return {"status": st}
             from app.llm.usage import reconcile_budget
             reconcile_budget(jid)
             return act_finalize(ctx)

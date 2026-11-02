@@ -6,6 +6,10 @@ Image=vataic-web:latest
 PublishPort=5000:5000
 Volume=vataic-data.volume:/data
 EnvironmentFile=%h/vataic/.env
+# Tailscale reachability (see docker-compose.yml): MagicDNS resolver +
+# public fallback. Requires the host to be on the tailnet.
+DNS=100.100.100.100
+DNS=1.1.1.1
 [Service]
 Restart=always
 [Install]

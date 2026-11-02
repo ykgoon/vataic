@@ -107,15 +107,15 @@
     {% if scenario["status"] == 'SUSPENDED' %}
     <button hx-post="/scenarios/{{ scenario["id"] }}/resume" hx-target="#status-{{ scenario["id"] }}" hx-swap="innerHTML" class="btn btn-secondary">Resume</button>
     {% endif %}
-    {% if scenario["status"] in ['RUNNING', 'CHECKPOINTING', 'SUSPENDED'] %}
+    {% if scenario["status"] in ['RUNNING', 'CHECKPOINTING', 'SUSPENDED', 'RECOVERING', 'INITIALIZING', 'CLUSTERING', 'EXPLAINING'] %}
     <button hx-post="/scenarios/{{ scenario["id"] }}/cancel" hx-target="#status-{{ scenario["id"] }}" hx-swap="innerHTML" class="btn btn-danger">Cancel</button>
     {% endif %}
     {% if scenario["status"] == 'FAILED' %}
     <button hx-post="/scenarios/{{ scenario["id"] }}/retry" hx-target="#status-{{ scenario["id"] }}" hx-swap="innerHTML" class="btn btn-secondary">Retry</button>
     {% endif %}
-    {% if scenario["status"] in ['COMPLETED', 'FAILED', 'CANCELLED'] %}
+    {# Delete is always offered: the route auto-cancels active scenarios
+       before removing data, so stranded runs are never undeletable. #}
     <button hx-post="/scenarios/{{ scenario["id"] }}/delete?redirect=1" hx-target="#chat-panel" hx-swap="outerHTML" hx-confirm="Delete this scenario and all its data? This cannot be undone." class="btn btn-danger">Delete</button>
-    {% endif %}
   </div>
 
   {% include "scenarios/chat_panel.html" %}

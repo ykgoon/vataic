@@ -6,6 +6,16 @@ services:
       DATABASE_PATH: /data/vataic.db
       ARTIFACT_DIR: /data/artifacts
     ports: ["5000:5000"]
+    # Tailscale reachability (issue: LLM provider lives on a tailnet host):
+    # 100.100.100.100 is the tailnet MagicDNS resolver, so documented
+    # hostnames (e.g. LLM_BASE_URL=http://<ts-host>:port/v1) resolve from
+    # inside containers; 1.1.1.1 is the fallback for when the tailscaled
+    # resolver is unreachable. Containers reach the tailnet via the host's
+    # tailscale0 interface (bridge NATs out through it) — no host network
+    # namespace sharing, so the published port keeps working. Do NOT pin
+    # tailnet IPs via extra_hosts: /etc/hosts outranks DNS and a stale IP
+    # would break resolution even while MagicDNS is healthy.
+    dns: [100.100.100.100, 1.1.1.1]
     volumes:
       - ./data:/data
       # Source bind mounts: logic/template changes load with a plain
@@ -19,6 +29,8 @@ services:
     environment:
       DATABASE_PATH: /data/vataic.db
       ARTIFACT_DIR: /data/artifacts
+    # Same tailnet reachability as web (LLM calls happen here).
+    dns: [100.100.100.100, 1.1.1.1]
     volumes:
       - ./data:/data
       - ./app:/srv/app

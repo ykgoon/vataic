@@ -148,7 +148,11 @@ def _scan_and_run(owner: str) -> None:
         if not j:
             continue
         status = j.get("status")
-        if status not in ("RUNNING", "RECOVERING", "CHECKPOINTING", "QUEUED"):
+        # Includes the stranded post-loop phases (INITIALIZING/CLUSTERING/
+        # EXPLAINING): scan_recoverable() surfaces them when their lease has
+        # expired, and run_sync() re-drives them from the phase they died in.
+        if status not in ("RUNNING", "RECOVERING", "CHECKPOINTING", "QUEUED",
+                          "INITIALIZING", "CLUSTERING", "EXPLAINING"):
             continue
         _run_scenario(scenario_id, owner)
         # _run_scenario drives a scenario end-to-end (or leaves it RUNNING with a live

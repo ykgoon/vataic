@@ -367,12 +367,8 @@ def test_delete_scenario_route_and_repos():
     art_dir = Path(os.environ["ARTIFACT_DIR"]) / jid
     assert art_dir.exists()
 
-    # Non-terminal states are blocked.
-    r = cl.post(f"/scenarios/{jid}/delete")
-    assert b"delete blocked" in r.get_data()
-    assert get_scenario(jid, DB) is not None
-
-    transition(jid, "CANCELLED", db_path=DB)
+    # Non-terminal states are auto-cancelled, then removed (stranded
+    # scenarios must never be undeletable).
     r = cl.post(f"/scenarios/{jid}/delete")
     assert r.status_code == 200
     assert get_scenario(jid, DB) is None
@@ -482,3 +478,75 @@ def test_finalize_zero_llm_gate(monkeypatch):
     assert "artifact" in out
     from app.scenarios.repos import get_scenario
     assert get_scenario(jid, DB)["status"] == "COMPLETED"
+
+def test_stranded_explaining_is_recovered_and_completes():
+    """A worker death mid-EXPLAINING (post-loop) must surface in
+    scan_recoverable and be re-driven to COMPLETED by run_sync."""
+    from app.scenarios.repos import create_scenario, transition, acquire_lease, scan_recoverable, get_scenario
+    from worker.workflows import ProjectionScenarioWorkflow
+    jid = create_scenario("strand me", db_path=DB)
+    for st in ("INITIALIZING", "RUNNING", "CLUSTERING", "EXPLAINING"):
+        transition(jid, st, db_path=DB)
+    acquire_lease(jid, "dead-worker", ttl_s=-1, db_path=DB)
+    assert jid in scan_recoverable(DB)
+    out = ProjectionScenarioWorkflow.run_sync({"scenario_id": jid, "premise": "strand me"})
+    assert "artifact" in out
+    assert get_scenario(jid, DB)["status"] == "COMPLETED"
+
+
+def test_act_cluster_rerun_no_duplicate_outcomes():
+    """Re-entry after a mid-cluster crash must replace, not duplicate."""
+    from worker.workflows import act_cluster
+    from app.scenarios.repos import create_scenario, transition
+    from app.db import get_conn
+    jid = create_scenario("cluster twice", db_path=DB)
+    for st in ("INITIALIZING", "RUNNING", "CLUSTERING"):
+        transition(jid, st, db_path=DB)
+    with get_conn(DB) as c:
+        c.execute("INSERT INTO particles(id,scenario_id,probability,factor_state,created_step) VALUES('p0',?,1.0,'{}',0)", (jid,))
+    act_cluster({"scenario_id": jid, "outcome_count": 3})
+    act_cluster({"scenario_id": jid, "outcome_count": 3})
+    with get_conn(DB) as c:
+        n = c.execute("SELECT COUNT(*) FROM outcomes WHERE scenario_id=?", (jid,)).fetchone()[0]
+    assert n == 1
+
+
+def test_run_sync_aborts_mid_loop_on_cancel(monkeypatch):
+    """User cancel must stop the pipeline between steps, never finalize."""
+    import worker.workflows as wf
+    from app.scenarios.repos import create_scenario, transition, get_scenario
+    jid = create_scenario("cancel mid-loop", db_path=DB)
+    transition(jid, "INITIALIZING", db_path=DB)
+    transition(jid, "RUNNING", db_path=DB)
+    calls = {"n": 0}
+    def fake_step(inp):
+        calls["n"] += 1
+        transition(jid, "CANCELLED", db_path=DB)
+        return {"particles": [], "step_index": 1}
+    monkeypatch.setattr(wf, "act_loop_step", fake_step)
+    out = wf.ProjectionScenarioWorkflow.run_sync({"scenario_id": jid, "premise": "x"})
+    assert out.get("status") == "CANCELLED"
+    assert calls["n"] == 1
+    assert get_scenario(jid, DB)["status"] == "CANCELLED"
+
+
+def test_cancel_badge_shows_new_state():
+    from app import create_app
+    from app.scenarios.repos import create_scenario, get_scenario
+    app = create_app({"TESTING": True})
+    cl = app.test_client()
+    jid = create_scenario("badge me", db_path=DB)
+    r = cl.post(f"/scenarios/{jid}/cancel")
+    assert b"CANCELLED" in r.get_data()
+    assert get_scenario(jid, DB)["status"] == "CANCELLED"
+
+
+def test_dashboard_delete_button_always_present():
+    """Stranded non-terminal scenarios must be deletable from the UI."""
+    from app import create_app
+    from app.scenarios.repos import create_scenario
+    app = create_app({"TESTING": True})
+    cl = app.test_client()
+    jid = create_scenario("ui delete", db_path=DB)
+    r = cl.get("/scenarios/partial")
+    assert f"/scenarios/{jid}/delete".encode() in r.get_data()

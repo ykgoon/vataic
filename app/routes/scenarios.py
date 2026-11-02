@@ -157,7 +157,8 @@ def detail(jid):
 
 
 def _ctrl(jid, action):
-    from app.scenarios.repos import get_scenario, transition
+    from app.scenarios.repos import get_scenario, transition, _write_retry
+    from app.db import get_conn
     j = get_scenario(jid) or {}
     st = j.get("status", "DRAFT")
     try:
@@ -169,9 +170,22 @@ def _ctrl(jid, action):
             transition(jid, "RUNNING", "user resume")
         elif action == "retry" and st in ("FAILED", "CANCELLED"):
             transition(jid, "QUEUED", "user retry")
+        # Expire any live lease on cancel/suspend: the running worker's
+        # renewal fails and it exits at its next boundary, while a later
+        # retry/resume is picked up on the next scan instead of waiting out
+        # the full lease TTL.
+        if action in ("cancel", "suspend"):
+            def _expire():
+                with get_conn() as c:
+                    c.execute("UPDATE leases SET expires_at=? WHERE scenario_id=?",
+                              ("2000-01-01T00:00:00+00:00", jid))
+            _write_retry(_expire)
     except Exception as e:
         return render_template("scenarios/status_badge.html", status=f"error: {e}")
-    return render_template("scenarios/status_badge.html", status=action)
+    # Render the resulting state, not the action name: the badge swap replaces
+    # the row's status span content until the next dashboard poll refreshes it.
+    new = (get_scenario(jid) or {}).get("status", st)
+    return render_template("scenarios/status_badge.html", status=new)
 
 
 @bp.post("/scenarios/<jid>/cancel")
@@ -196,15 +210,28 @@ def retry(jid):
 
 @bp.post("/scenarios/<jid>/delete")
 def delete(jid):
-    """Delete a terminal scenario: row, children, and on-disk artifacts."""
+    """Delete a scenario from any state: active runs are cancelled first so
+    the worker aborts at its next boundary, then row, children, and on-disk
+    artifacts are removed. The htmx confirm dialog is the consent gate; the
+    server no longer refuses non-terminal deletes (stranded scenarios were
+    effectively undeletable before)."""
     import shutil
-    from app.scenarios.repos import get_scenario, delete_scenario
+    from app.scenarios.repos import get_scenario, delete_scenario, transition
     from app.config import settings
     from pathlib import Path
     j = get_scenario(jid) or {}
+    if not j:
+        if request.args.get("redirect") == "1":
+            import flask
+            resp = flask.Response("", status=200)
+            resp.headers["HX-Redirect"] = "/scenarios"
+            return resp
+        return ""
     if j.get("status") not in ("COMPLETED", "FAILED", "CANCELLED"):
-        return render_template("scenarios/status_badge.html",
-                               status="delete blocked (cancel first)")
+        try:
+            transition(jid, "CANCELLED", "user delete (auto-cancel)")
+        except Exception:
+            pass  # edge not allowed (e.g. raced state) - delete proceeds anyway
     delete_scenario(jid)
     shutil.rmtree(Path(settings.artifact_dir) / jid, ignore_errors=True)
     if request.args.get("redirect") == "1":

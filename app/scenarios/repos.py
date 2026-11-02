@@ -175,17 +175,26 @@ def store_budget(jid: str, b: dict, db_path=None) -> None:
 
 # ---- recovery scanner (3.5) ----
 def scan_recoverable(db_path=None) -> list[str]:
+    """Scenarios a worker can pick up: non-terminal statuses whose lease is
+    missing or expired.
+
+    Covers mid-loop crashes (RUNNING/CHECKPOINTING/RECOVERING) and scenarios
+    stranded in INITIALIZING/CLUSTERING/EXPLAINING after a worker died
+    mid-phase — previously those were unrecoverable and undeletable
+    dead-ends. Statuses are left untouched so run_sync can re-enter at the
+    phase the scenario died in; the old synthetic RECOVERING demotion was a
+    silent no-op (no such edges in the state machine) and would have erased
+    the phase information needed for resume.
+    """
     out = []
     with get_conn(db_path) as c:
-        rows = c.execute("""SELECT id, status, lease_expires_at FROM projection_scenarios
-          WHERE status IN ('RUNNING','RECOVERING','CHECKPOINTING')""").fetchall()
+        rows = c.execute("""SELECT id, lease_expires_at FROM projection_scenarios
+          WHERE status IN ('RUNNING','RECOVERING','CHECKPOINTING',
+                           'INITIALIZING','CLUSTERING','EXPLAINING')""").fetchall()
         for r in rows:
             exp = r["lease_expires_at"]
             if not exp or exp <= now_iso():
                 out.append(r["id"])
-    for jid in out:
-        try: transition(jid, "RECOVERING", "expired lease -> recovering", db_path)
-        except Exception: pass
     return out
 
 def scan_queued(db_path=None) -> list[str]:
