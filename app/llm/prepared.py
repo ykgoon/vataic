@@ -49,6 +49,10 @@ def provider_status(db_path=None) -> dict:
         return {"ok": False,
                 "detail": f"model(s) not offered: {', '.join(missing)}; provider offers: {shown}",
                 "model": model}
+    if not model:
+        return {"ok": True,
+                "detail": f"reachable — {len(ids)} model(s); no model configured, provider default will be used",
+                "model": model}
     return {"ok": True, "detail": f"reachable — {len(ids)} model(s) including configured", "model": model}
 
 

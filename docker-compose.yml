@@ -1,6 +1,11 @@
 services:
   web:
     build: { context: ., dockerfile: Dockerfile.web }
+    # Override Dockerfile CMD without rebuilding: the 30s default worker
+    # timeout killed requests that queued behind SQLite write contention
+    # (CRITICAL WORKER TIMEOUT in logs mid-delete), one worker starved the
+    # 3s dashboard polls, and default logging hid request durations.
+    command: ["sh", "-c", "python -m app.migrate; exec gunicorn 'app:create_app()' -b 0.0.0.0:5000 --timeout 120 --workers 2 --access-logfile - --access-logformat '%(t)s %(r)s -> %(s)s %(D)sus' --capture-output"]
     env_file: [.env]
     environment:
       DATABASE_PATH: /data/vataic.db

@@ -114,8 +114,14 @@
     <button hx-post="/scenarios/{{ scenario["id"] }}/retry" hx-target="#status-{{ scenario["id"] }}" hx-swap="innerHTML" class="btn btn-secondary">Retry</button>
     {% endif %}
     {# Delete is always offered: the route auto-cancels active scenarios
-       before removing data, so stranded runs are never undeletable. #}
-    <button hx-post="/scenarios/{{ scenario["id"] }}/delete?redirect=1" hx-target="#chat-panel" hx-swap="outerHTML" hx-confirm="Delete this scenario and all its data? This cannot be undone." class="btn btn-danger">Delete</button>
+       before removing data, so stranded runs are never undeletable.
+       Plain form post (not htmx): HX-Redirect + swap raced into a
+       swapError; a full-page redirect is deterministic and gives the
+       confirm() dialog for free. #}
+    <form method="post" action="/scenarios/{{ scenario["id"] }}/delete" style="display:inline"
+          onsubmit="return confirm('Delete this scenario and all its data? This cannot be undone.');">
+      <button type="submit" class="btn btn-danger">Delete</button>
+    </form>
   </div>
 
   {% include "scenarios/chat_panel.html" %}

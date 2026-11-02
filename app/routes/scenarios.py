@@ -46,6 +46,12 @@ def dashboard_partial():
 @bp.get("/scenarios/<jid>")
 def detail(jid):
     from app.scenarios.repos import get_scenario, latest_checkpoint
+    j = get_scenario(jid)
+    if not j:
+        # Deleted (or never existed): stale tabs and bookmarks land here
+        # after a delete; render a friendly page instead of a 500 from
+        # scenario["id"] on an empty dict.
+        return render_template("scenarios/gone.html"), 404
     from app.db import get_conn
     from app.llm.usage import reconcile_budget, scenario_usage_summary
     from app.present import prepare_outcomes, repair_legacy_outcomes
@@ -221,12 +227,12 @@ def delete(jid):
     from pathlib import Path
     j = get_scenario(jid) or {}
     if not j:
-        if request.args.get("redirect") == "1":
-            import flask
-            resp = flask.Response("", status=200)
-            resp.headers["HX-Redirect"] = "/scenarios"
-            return resp
-        return ""
+        # Already gone (double-click or raced delete): htmx callers get the
+        # fresh partial; plain posts redirect back to the dashboard.
+        if request.headers.get("HX-Request"):
+            from app.scenarios.repos import list_scenarios
+            return render_template("scenarios/partial.html", scenarios=list_scenarios())
+        return redirect("/scenarios")
     if j.get("status") not in ("COMPLETED", "FAILED", "CANCELLED"):
         try:
             transition(jid, "CANCELLED", "user delete (auto-cancel)")
@@ -234,12 +240,18 @@ def delete(jid):
             pass  # edge not allowed (e.g. raced state) - delete proceeds anyway
     delete_scenario(jid)
     shutil.rmtree(Path(settings.artifact_dir) / jid, ignore_errors=True)
-    if request.args.get("redirect") == "1":
-        import flask
-        resp = flask.Response("", status=200)
-        resp.headers["HX-Redirect"] = "/scenarios"
-        return resp
-    return ""  # htmx: remove the row
+    # htmx callers swap the target away; plain form posts (detail page)
+    # get a real redirect — HX-Redirect plus a same-response swap raced
+    # into "h:swapError" in real browsers.
+    if request.headers.get("HX-Request"):
+        # Swap fresh tbody content rather than just removing one row: a
+        # concurrent 3s dashboard poll re-renders the tbody and orphans the
+        # row node, so hx-swap="delete"/"outerHTML" on the stale row crashed
+        # htmx (parentNode null -> swapError in the console). Both writers
+        # now target the stable tbody element with identical fresh state.
+        from app.scenarios.repos import list_scenarios
+        return render_template("scenarios/partial.html", scenarios=list_scenarios())
+    return redirect("/scenarios")
 
 
 @bp.post("/scenarios/<jid>/re-explain")

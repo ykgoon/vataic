@@ -368,15 +368,31 @@ def test_delete_scenario_route_and_repos():
     assert art_dir.exists()
 
     # Non-terminal states are auto-cancelled, then removed (stranded
-    # scenarios must never be undeletable).
+    # scenarios must never be undeletable). Plain form posts (detail page)
+    # get a redirect to the dashboard; htmx posts get a fresh tbody partial
+    # (removing one row raced the 3s poll's re-render into swapError).
     r = cl.post(f"/scenarios/{jid}/delete")
-    assert r.status_code == 200
+    assert r.status_code == 302
+    assert r.headers["Location"].endswith("/scenarios")
     assert get_scenario(jid, DB) is None
     assert not art_dir.exists()
     with get_conn(DB) as c:
         for t in ("factor_sets", "scenario_events", "artifacts"):
             n = c.execute(f"SELECT COUNT(*) FROM {t} WHERE scenario_id=?", (jid,)).fetchone()[0]
             assert n == 0, t
+
+    # htmx path: response swaps fresh dashboard rows into the tbody.
+    jid2 = create_scenario("delete me via htmx", db_path=DB)
+    r = cl.post(f"/scenarios/{jid2}/delete", headers={"HX-Request": "true"})
+    assert r.status_code == 200
+    body = r.get_data(as_text=True)
+    assert "scenarios-tbody" not in body          # partial rows, not the page
+    assert jid2 not in body                        # deleted row absent
+    assert get_scenario(jid2, DB) is None
+
+    # Deleting an already-gone scenario is idempotent: same responses, no 500.
+    assert cl.post(f"/scenarios/{jid}/delete").status_code == 302
+    assert cl.post(f"/scenarios/{jid}/delete", headers={"HX-Request": "true"}).status_code == 200
 
 
 def test_chat_panel_roundtrip_failure_and_clear():
@@ -550,3 +566,99 @@ def test_dashboard_delete_button_always_present():
     jid = create_scenario("ui delete", db_path=DB)
     r = cl.get("/scenarios/partial")
     assert f"/scenarios/{jid}/delete".encode() in r.get_data()
+
+
+def test_seed_default_primary_model_blank():
+    """Default model config is blank: provider default applies (no
+    hardcoded model name that breaks non-OpenAI providers)."""
+    from app.seed import DEFAULTS
+    assert DEFAULTS["llm.primary_model"] == ""
+
+
+def test_model_for_role_blank_db_primary_stays_blank(monkeypatch):
+    """A blank llm.primary_model (env or DB) is honoured end-to-end:
+    gpt-4o-mini must never be resurrected as a fallback."""
+    monkeypatch.setenv("LLM_PRIMARY_MODEL", "")
+    monkeypatch.setenv("LLM_STRONG_MODEL", "")
+    monkeypatch.setenv("LLM_CHEAP_MODEL", "")
+    import importlib
+    import app.config as cfg
+    importlib.reload(cfg)
+    from app.db import get_conn
+    with get_conn() as c:
+        c.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('llm.primary_model','')")
+    from app.llm.client import model_for_role
+    assert model_for_role("strong") == ""
+    assert model_for_role("cheap") == ""
+    assert model_for_role("") == ""
+    # A non-blank DB primary still wins for roles without their own row.
+    with get_conn() as c:
+        c.execute("UPDATE settings SET value='hermes-agent' WHERE key='llm.primary_model'")
+    assert model_for_role("strong") == "hermes-agent"
+    assert model_for_role("cheap") == "hermes-agent"
+
+
+def test_llm_request_carries_blank_model_when_unset(monkeypatch):
+    """With no model configured, the outgoing chat/completions request must
+    carry model:"" (provider applies its own default) — never gpt-4o-mini."""
+    monkeypatch.setenv("LLM_PRIMARY_MODEL", "")
+    monkeypatch.setenv("LLM_STRONG_MODEL", "")
+    monkeypatch.setenv("LLM_CHEAP_MODEL", "")
+    import importlib
+    import app.config as cfg
+    importlib.reload(cfg)
+    from app.db import get_conn
+    with get_conn() as c:
+        c.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('llm.primary_model','')")
+    from app.llm import client as cl
+    captured = {}
+
+    class FakeResp:
+        status_code = 200
+        def json(self):
+            return {"choices": [{"message": {"content": "{\"ok\": 1}"}}], "usage": {}}
+        def raise_for_status(self):
+            pass
+
+    def fake_post(url, **kw):
+        captured["body"] = kw["json"]
+        return FakeResp()
+
+    monkeypatch.setattr(cl.requests, "post", fake_post)
+    from app.scenarios.repos import create_scenario
+    jid = create_scenario("blank model probe", db_path=DB)
+    c2 = cl.LLMClient()
+    assert c2.model == ""
+    out = c2.chat(jid, "chat", [{"role": "user", "content": "hi"}])
+    assert captured["body"]["model"] == ""
+    assert "gpt-4o-mini" not in json.dumps(captured["body"])
+    assert out["json"] == {"ok": 1}
+
+
+def test_htmx_bundle_is_real_not_placeholder():
+    """The vendored htmx must be the real library: a placeholder stub made
+    every hx-* button (delete/cancel/retry) dead in real browsers while
+    curl-level tests still passed."""
+    from app import create_app
+    app = create_app({"TESTING": True})
+    cl = app.test_client()
+    r = cl.get("/static/htmx.min.js")
+    body = r.get_data(as_text=True)
+    assert r.status_code == 200
+    assert len(body) > 10000, f"htmx bundle suspiciously small: {len(body)} bytes"
+    assert "Vendor bundle placeholder" not in body
+    assert "htmx" in body[:400].lower()
+
+
+def test_dashboard_poll_trigger_uses_valid_htmx_syntax():
+    """hx-trigger must use 'every 3 seconds' (valid) — 'interval:3000,
+    request:after' is not valid htmx syntax and silently never fired."""
+    from app import create_app
+    from app.scenarios.repos import create_scenario
+    app = create_app({"TESTING": True})
+    cl = app.test_client()
+    create_scenario("poll trigger check", db_path=DB)
+    r = cl.get("/scenarios")
+    body = r.get_data(as_text=True)
+    assert "every 3s" in body
+    assert "interval:3000" not in body

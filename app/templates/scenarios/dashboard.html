@@ -21,7 +21,7 @@
       </thead>
       <tbody id="scenarios-tbody"
                hx-get="/scenarios/partial"
-               hx-trigger="interval:3000, request:after"
+               hx-trigger="every 3s"
                hx-swap="innerHTML">
         {% include "scenarios/partial.html" %}
       </tbody>

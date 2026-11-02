@@ -21,11 +21,10 @@
     {% if j.status == 'FAILED' %}
     <button hx-post="/scenarios/{{ j.id }}/retry" hx-target="#status-{{ j.id }}" hx-swap="innerHTML" class="btn btn-sm btn-secondary">Retry</button>
     {% endif %}
-    {# Delete is available in every state: the route blocks non-terminal
-       deletes server-side with a visible badge, so a stranded non-terminal
-       scenario (e.g. worker died mid-run) can still be cancelled here and
-       then removed without waiting for a recovery scan. #}
-    <button hx-post="/scenarios/{{ j.id }}/delete" hx-target="closest tr" hx-swap="outerHTML" hx-confirm="Delete this scenario and all its data?" class="btn btn-sm btn-danger">Delete</button>
+    {# Delete is available in every state: the route auto-cancels active
+       scenarios before removing data, so stranded runs (e.g. worker died
+       mid-run) are removable without waiting for a recovery scan. #}
+    <button hx-post="/scenarios/{{ j.id }}/delete" hx-target="#scenarios-tbody" hx-swap="innerHTML" hx-confirm="Delete this scenario and all its data?" class="btn btn-sm btn-danger">Delete</button>
   </td>
 </tr>
 {% endfor %}

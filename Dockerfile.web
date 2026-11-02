@@ -6,4 +6,4 @@ ENV PATH="/srv/.venv/bin:$PATH"
 COPY app ./app
 COPY migrations ./migrations
 ENV DATABASE_PATH=/data/vataic.db ARTIFACT_DIR=/data/artifacts
-CMD ["sh", "-c", "python -m app.migrate; exec gunicorn 'app:create_app()' -b 0.0.0.0:5000"]
+CMD ["sh", "-c", "python -m app.migrate; exec gunicorn 'app:create_app()' -b 0.0.0.0:5000 --timeout 120"]

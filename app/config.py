@@ -33,9 +33,13 @@ class Settings:
     llm_provider: str = field(default_factory=lambda: _get("LLM_PROVIDER", "openai-compatible"))
     llm_base_url: str = field(default_factory=lambda: _get("LLM_BASE_URL", "http://localhost:11434/v1"))
     llm_api_key: str = field(default_factory=lambda: _get("LLM_API_KEY", ""))
-    llm_primary_model: str = field(default_factory=lambda: _get("LLM_PRIMARY_MODEL", "gpt-4o-mini"))
-    llm_strong_model: str = field(default_factory=lambda: _get("LLM_STRONG_MODEL", "") or _get("LLM_PRIMARY_MODEL", "gpt-4o-mini"))
-    llm_cheap_model: str = field(default_factory=lambda: _get("LLM_CHEAP_MODEL", "") or _get("LLM_PRIMARY_MODEL", "gpt-4o-mini"))
+    # Blank model is a deliberate config: the provider then applies its own
+    # default model (verified against the target gateway). No hardcoded
+    # fallback — defaulting to a provider-specific model name like
+    # "gpt-4o-mini" breaks every non-OpenAI provider.
+    llm_primary_model: str = field(default_factory=lambda: _get("LLM_PRIMARY_MODEL", ""))
+    llm_strong_model: str = field(default_factory=lambda: _get("LLM_STRONG_MODEL", ""))
+    llm_cheap_model: str = field(default_factory=lambda: _get("LLM_CHEAP_MODEL", ""))
     llm_embedding_model: str = field(default_factory=lambda: _get("LLM_EMBEDDING_MODEL", ""))
     llm_timeout_s: int = field(default_factory=lambda: _get_int("LLM_REQUEST_TIMEOUT_S", 120))
     llm_max_attempts: int = field(default_factory=lambda: _get_int("LLM_MAX_ATTEMPTS", 4))

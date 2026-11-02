@@ -84,7 +84,11 @@ class LLMClient:
         from app.config import settings
         self.base_url = (base_url or settings.llm_base_url).rstrip("/")
         self.api_key = api_key or settings.llm_api_key
-        self.model = model or settings.llm_primary_model
+        # Default model: the effective configured primary (DB settings row
+        # first, then env). Blank is a valid value — the provider then
+        # applies its own default model; no hardcoded fallback is
+        # substituted ("gpt-4o-mini" broke every non-OpenAI provider).
+        self.model = model or model_for_role("")
         self.timeout_s = timeout_s or settings.llm_timeout_s
         self.max_attempts = max_attempts or settings.llm_max_attempts
         self.backoff = backoff_base_s if backoff_base_s is not None else settings.llm_backoff_base_s
@@ -194,6 +198,14 @@ class LLMClient:
                 return {"json": parsed, "cache_hit": False, "key": key}
             except Exception as e:
                 last = e
+                if "FOREIGN KEY constraint failed" in str(e):
+                    # The scenario row was deleted mid-call (user delete while
+                    # this LLM call was in flight). Retrying the whole call
+                    # burns provider quota for a scenario that no longer
+                    # exists — abort immediately, this is not a provider
+                    # failure so the circuit breaker stays untouched.
+                    raise RuntimeError(
+                        f"scenario {scenario_id} deleted mid-call; aborting LLM retry loop") from e
                 logger.warning("LLM %s attempt %d/%d failed (model=%s): %s",
                                phase, attempt + 1, self.max_attempts, mdl, e)
                 # Rate limiting needs a different cadence than transient
@@ -221,16 +233,35 @@ ROLE_PHASES = {"strong": {"causal", "step", "explanation", "parse", "chat"},
                "embedding": set()}
 
 def model_for_role(role: str) -> str:
+    """Model for a role: DB settings rows first, then env config.
+
+    Blank is honoured: an unset model is passed through as "" so the
+    provider applies its own default model. Hardcoded fallbacks (e.g.
+    "gpt-4o-mini") break every non-OpenAI provider and must not be
+    resurrected here.
+    """
     from app.config import settings
     from app.db import get_conn
     try:
         with get_conn() as c:
             rows = {r["key"]: r["value"] for r in c.execute("SELECT key,value FROM settings")}
-        if role == "strong" and rows.get("llm.strong_model"): return rows["llm.strong_model"]
-        if role == "cheap" and rows.get("llm.cheap_model"): return rows["llm.cheap_model"]
-    except Exception: pass
-    if role == "strong": return settings.llm_strong_model or settings.llm_primary_model
-    if role == "cheap": return settings.llm_cheap_model or settings.llm_primary_model
+        if role == "strong" and rows.get("llm.strong_model"):
+            return rows["llm.strong_model"]
+        if role == "cheap" and rows.get("llm.cheap_model"):
+            return rows["llm.cheap_model"]
+        # A non-blank DB primary_model row wins for every role without its
+        # own row. A blank DB row falls through to env (also usually blank),
+        # so the end result is "" — the provider applies its own default
+        # model. No hardcoded fallback may be substituted here: defaulting
+        # to "gpt-4o-mini" broke every non-OpenAI provider.
+        if rows.get("llm.primary_model"):
+            return rows["llm.primary_model"].strip()
+    except Exception:
+        pass
+    if role == "strong":
+        return settings.llm_strong_model or ""
+    if role == "cheap":
+        return settings.llm_cheap_model or ""
     return settings.llm_primary_model
 
 def model_for_phase(phase: str) -> str:

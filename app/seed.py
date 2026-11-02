@@ -5,7 +5,7 @@ from app.db import get_conn
 DEFAULTS = {
   "llm.provider": "openai-compatible",
   "llm.base_url": "http://localhost:11434/v1",
-  "llm.primary_model": "gpt-4o-mini",
+  "llm.primary_model": "",
   "llm.strong_model": "",
   "llm.cheap_model": "",
   "budget.max_steps": "40", "budget.max_llm_calls": "500",
