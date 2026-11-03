@@ -35,8 +35,8 @@ class Settings:
     llm_api_key: str = field(default_factory=lambda: _get("LLM_API_KEY", ""))
     # Blank model is a deliberate config: the provider then applies its own
     # default model (verified against the target gateway). No hardcoded
-    # fallback — defaulting to a provider-specific model name like
-    # "gpt-4o-mini" breaks every non-OpenAI provider.
+    # fallback — a provider-specific hardcoded default breaks every
+    # non-OpenAI provider.
     llm_primary_model: str = field(default_factory=lambda: _get("LLM_PRIMARY_MODEL", ""))
     llm_strong_model: str = field(default_factory=lambda: _get("LLM_STRONG_MODEL", ""))
     llm_cheap_model: str = field(default_factory=lambda: _get("LLM_CHEAP_MODEL", ""))

@@ -87,7 +87,8 @@ class LLMClient:
         # Default model: the effective configured primary (DB settings row
         # first, then env). Blank is a valid value — the provider then
         # applies its own default model; no hardcoded fallback is
-        # substituted ("gpt-4o-mini" broke every non-OpenAI provider).
+        # substituted (a provider-specific hardcoded default broke every
+        # non-OpenAI provider).
         self.model = model or model_for_role("")
         self.timeout_s = timeout_s or settings.llm_timeout_s
         self.max_attempts = max_attempts or settings.llm_max_attempts
@@ -236,8 +237,8 @@ def model_for_role(role: str) -> str:
     """Model for a role: DB settings rows first, then env config.
 
     Blank is honoured: an unset model is passed through as "" so the
-    provider applies its own default model. Hardcoded fallbacks (e.g.
-    "gpt-4o-mini") break every non-OpenAI provider and must not be
+    provider applies its own default model. Hardcoded provider-specific
+    fallbacks break every non-OpenAI provider and must not be
     resurrected here.
     """
     from app.config import settings
@@ -252,8 +253,9 @@ def model_for_role(role: str) -> str:
         # A non-blank DB primary_model row wins for every role without its
         # own row. A blank DB row falls through to env (also usually blank),
         # so the end result is "" — the provider applies its own default
-        # model. No hardcoded fallback may be substituted here: defaulting
-        # to "gpt-4o-mini" broke every non-OpenAI provider.
+        # model. No hardcoded fallback may be substituted here: a
+        # provider-specific hardcoded default broke every non-OpenAI
+        # provider.
         if rows.get("llm.primary_model"):
             return rows["llm.primary_model"].strip()
     except Exception:

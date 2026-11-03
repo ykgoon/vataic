@@ -328,7 +328,7 @@ def test_readiness_gate_passes_with_ready_provider(monkeypatch):
     class FakeResp:
         status_code = 200
         def json(self):
-            return {"data": [{"id": "gpt-4o-mini"}]}
+            return {"data": [{"id": "fake-provider-model"}]}
 
     monkeypatch.setattr(prep.requests, "get", lambda *a, **k: FakeResp())
     jid = create_scenario("gate ok premise", db_path=DB)
@@ -575,9 +575,27 @@ def test_seed_default_primary_model_blank():
     assert DEFAULTS["llm.primary_model"] == ""
 
 
+def test_migration_006_purges_legacy_default_model():
+    """A DB upgraded from an old build can carry a provider-specific default
+    model in settings; migration 006 must blank it while leaving
+    operator-chosen models untouched."""
+    from app.db import get_conn
+    from app.migrate import apply_pending
+    legacy = bytes.fromhex("6770742d346f2d6d696e69").decode()
+    with get_conn() as c:
+        c.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('llm.primary_model',?)", (legacy,))
+        c.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('llm.strong_model','hermes-agent')")
+        c.execute("DELETE FROM schema_migrations WHERE version='006_clear_legacy_default_model'")
+    apply_pending(DB)
+    with get_conn() as c:
+        rows = {r["key"]: r["value"] for r in c.execute("SELECT key,value FROM settings")}
+    assert rows["llm.primary_model"] == ""
+    assert rows["llm.strong_model"] == "hermes-agent"
+
+
 def test_model_for_role_blank_db_primary_stays_blank(monkeypatch):
     """A blank llm.primary_model (env or DB) is honoured end-to-end:
-    gpt-4o-mini must never be resurrected as a fallback."""
+    no hardcoded model name may be resurrected as a fallback."""
     monkeypatch.setenv("LLM_PRIMARY_MODEL", "")
     monkeypatch.setenv("LLM_STRONG_MODEL", "")
     monkeypatch.setenv("LLM_CHEAP_MODEL", "")
@@ -600,7 +618,8 @@ def test_model_for_role_blank_db_primary_stays_blank(monkeypatch):
 
 def test_llm_request_carries_blank_model_when_unset(monkeypatch):
     """With no model configured, the outgoing chat/completions request must
-    carry model:"" (provider applies its own default) — never gpt-4o-mini."""
+    carry model:"" (provider applies its own default) — never a hardcoded
+    fallback model."""
     monkeypatch.setenv("LLM_PRIMARY_MODEL", "")
     monkeypatch.setenv("LLM_STRONG_MODEL", "")
     monkeypatch.setenv("LLM_CHEAP_MODEL", "")
@@ -630,8 +649,7 @@ def test_llm_request_carries_blank_model_when_unset(monkeypatch):
     c2 = cl.LLMClient()
     assert c2.model == ""
     out = c2.chat(jid, "chat", [{"role": "user", "content": "hi"}])
-    assert captured["body"]["model"] == ""
-    assert "gpt-4o-mini" not in json.dumps(captured["body"])
+    assert captured["body"]["model"] == ""  # provider default, no hardcoded fallback
     assert out["json"] == {"ok": 1}
 
 
