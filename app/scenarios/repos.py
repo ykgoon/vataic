@@ -235,6 +235,17 @@ def delete_scenario(jid: str, db_path=None) -> None:
                 # outcome membership references outcomes; delete before parents.
                 c.execute("""DELETE FROM outcome_particle_memberships
                   WHERE outcome_id IN (SELECT id FROM outcomes WHERE scenario_id=?)""", (jid,))
+                # Inbound references from OTHER scenarios' particles: particle
+                # parent_id is a bare FK on particles(id) with no scenario
+                # scoping, so another scenario's tree can root itself on this
+                # scenario's particles. Deleting those parents here would fail
+                # the immediate FK check (and the cascade would fail the same
+                # way on the final row delete), orphaning rows we don't own.
+                # Detach the foreign children first - their tree keeps its
+                # shape, just with a NULLed root.
+                c.execute("""UPDATE particles SET parent_id=NULL
+                  WHERE parent_id IN (SELECT id FROM particles WHERE scenario_id=?)
+                    AND scenario_id<>?""", (jid, jid))
                 for t in CHILD_TABLES:
                     if t in ("particle_states", "subject_profiles",
                              "outcome_particle_memberships"):

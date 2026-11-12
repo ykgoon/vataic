@@ -395,6 +395,36 @@ def test_delete_scenario_route_and_repos():
     assert cl.post(f"/scenarios/{jid}/delete", headers={"HX-Request": "true"}).status_code == 200
 
 
+def test_delete_scenario_detaches_inbound_cross_scenario_particles():
+    """Another scenario's particle can root itself on this scenario's particles
+    (parent_id is a bare FK on particles(id), not scenario-scoped). Deleting
+    the parent scenario must detach those foreign children instead of tripping
+    the immediate FK check (observed live: one scenario's root 'p0' was the
+    parent for two other scenarios' trees, making it undeletable)."""
+    from app.scenarios.repos import create_scenario, get_scenario, delete_scenario
+    from app.db import get_conn
+    jid_a = create_scenario("parent scenario", db_path=DB)
+    jid_b = create_scenario("foreign child scenario", db_path=DB)
+    with get_conn(DB) as c:
+        c.execute(
+            "INSERT INTO particles (id, scenario_id, parent_id, probability) VALUES ('p0', ?, NULL, 1.0)",
+            (jid_a,))
+        c.execute(
+            "INSERT INTO particles (id, scenario_id, parent_id, probability) VALUES ('foreign', ?, 'p0', 1.0)",
+            (jid_b,))
+
+    delete_scenario(jid_a, DB)
+
+    assert get_scenario(jid_a, DB) is None
+    with get_conn(DB) as c:
+        # scenario A's particles (incl. 'p0') are gone, but scenario B keeps
+        # its particle, detached, and scenario B itself survives.
+        assert c.execute("SELECT COUNT(*) FROM particles WHERE scenario_id=?", (jid_a,)).fetchone()[0] == 0
+        row = c.execute("SELECT parent_id FROM particles WHERE scenario_id=?", (jid_b,)).fetchone()
+        assert row is not None and row["parent_id"] is None
+        assert get_scenario(jid_b, DB) is not None
+
+
 def test_chat_panel_roundtrip_failure_and_clear():
     from app import create_app
     from app.scenarios.repos import create_scenario
