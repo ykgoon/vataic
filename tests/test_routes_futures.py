@@ -96,8 +96,31 @@ def test_futures_view_renders_all_sections():
     # outcome cards with collapsed details
     assert "Grind through" in body and "Stall out" in body
     assert "<details" in body
-    # tree demoted
-    assert "Timeline Tree (debug)" in body
+    # retired debug pages are not linked from the results view
+    assert "/tree" not in body
+    assert "/trajectories" not in body
+
+
+def test_retired_debug_pages_are_gone():
+    """The timeline-tree and factor-trajectories pages were removed: no links
+    anywhere in the results views, and the routes no longer resolve."""
+    from app import create_app
+    jid = _seed_completed_scenario("personal")
+    app = create_app({"TESTING": True})
+    cl = app.test_client()
+
+    for path in (f"/results/{jid}", f"/results/{jid}/fan?factor=f1",
+                 f"/results/{jid}/story?oid=oA", f"/scenarios/{jid}"):
+        body = cl.get(path).get_data(as_text=True)
+        assert f"/results/{jid}/tree" not in body, path
+        assert f"/results/{jid}/trajectories" not in body, path
+
+    for path in (f"/results/{jid}/tree", f"/results/{jid}/trajectories",
+                 f"/results/{jid}/branch/pa"):
+        assert cl.get(path).status_code == 404, path
+
+    # The fan chart still serves the factor timeline it replaced.
+    assert "fan-svg" in cl.get(f"/results/{jid}/fan?factor=f1").get_data(as_text=True)
 
 
 def test_macro_scope_phrasing():

@@ -1,8 +1,8 @@
 """Futures view: outcome cards, fan chart, futures map, path stories,
 cornerstone rationales (htmx swaps). Implements
-openspec/changes/2026-10-25-futures-output (web-ui delta). The legacy
-timeline tree stays as a debug route; the legacy card page remains as a
-fallback for scenarios without a futures view (non-completed)."""
+openspec/changes/2026-10-25-futures-output (web-ui delta). The fan chart
+covers the factor timelines; the legacy card page remains as a fallback for
+scenarios without a futures view (non-completed)."""
 from flask import Blueprint, render_template
 import json
 import html
@@ -140,7 +140,7 @@ def fan(jid):
     rendered = render_template("results/partials/fan.html", jid=jid, fv=fv,
                                factor=f, fan_html=fan_html, legend=legend,
                                scope_subtitle=_scope_subtitle(fv.get("scope", "macro")))
-    return rendered if _is_htmx() else _wrap(rendered, "Factor trajectories")
+    return rendered if _is_htmx() else _wrap(rendered, "Factor timeline")
 
 
 @bp.get("/results/<jid>/story")
@@ -234,71 +234,3 @@ def outcome_detail(jid, oid):
     if alts_list:
         parts.append(f"<p class='outcome-detail-alts'><strong>Alternative timelines in this cluster:</strong> {', '.join(alts_list)}</p>")
     return "".join(parts)
-
-
-@bp.get("/results/<jid>/tree")
-def tree(jid):
-    """Debug view: raw particle lineage. Not linked from primary navigation."""
-    from app.db import get_conn
-    with get_conn() as c:
-        parts = [dict(r) for r in c.execute(
-            "SELECT id,parent_id,probability FROM particles WHERE scenario_id=?", (jid,))]
-    items = "".join(
-        f"<li><span hx-get='/results/{jid}/branch/{p['id']}' hx-target='#bdetail'>"
-        f"{p['id']} ({p['probability']:.2f})</span></li>"
-        for p in parts)
-    return f"<h1>Timeline tree (debug)</h1><ol>{items}</ol><div id='bdetail'></div>"
-
-
-@bp.get("/results/<jid>/branch/<pid>")
-def branch(jid, pid):
-    from app.db import get_conn
-    with get_conn() as c:
-        rows = [dict(r) for r in c.execute(
-            "SELECT * FROM particle_states WHERE particle_id=? ORDER BY step_index", (pid,))]
-    return f"<pre>{json.dumps(rows)[:3000]}</pre>"
-
-
-@bp.get("/results/<jid>/trajectories")
-def traj(jid):
-    from app.db import get_conn
-    from app.present import factor_names_for_scenario
-    names = factor_names_for_scenario(jid)
-    with get_conn() as c:
-        rows = [dict(r) for r in c.execute(
-            """SELECT ps.step_index, ps.factor_values FROM particle_states ps
-               JOIN particles p ON p.id=ps.particle_id WHERE p.scenario_id=? LIMIT 50""", (jid,))]
-    # One polyline per factor that ever moves, labeled with human names.
-    series: dict[str, list[tuple[int, float]]] = {}
-    for r in rows:
-        try:
-            fv = json.loads(r["factor_values"])
-        except Exception:
-            continue
-        for k, v in fv.items():
-            try:
-                series.setdefault(k, []).append((int(r["step_index"]), float(v)))
-            except Exception:
-                continue
-    moving = {k: v for k, v in series.items()
-              if any(abs(val - 50.0) >= 3.0 for _, val in v)}
-    if not moving and series:
-        moving = dict(list(series.items())[:4])
-    colors = ["#2563eb", "#dc2626", "#059669", "#d97706", "#7c3aed", "#0891b2"]
-    w, h = 640, 240
-    lines = []
-    legend = []
-    for i, (k, pts) in enumerate(sorted(moving.items())[:6]):
-        pts = sorted(pts)
-        n = max(len(pts) - 1, 1)
-        poly = " ".join(f"{60 + (s / n) * (w - 80):.0f},{h - 30 - (v / 100) * (h - 60):.0f}"
-                        for s, v in pts)
-        color = colors[i % len(colors)]
-        lines.append(f"<polyline points='{poly}' fill='none' stroke='{color}' stroke-width='2'/>")
-        legend.append(f"<span style='color:{color};font-weight:600'>●</span> {html.escape(names.get(k, k))}")
-    legend_html = " &nbsp; ".join(legend) if legend else "<span class='muted'>no factor movement recorded</span>"
-    return (f"<h1>Factor trajectories</h1>"
-            f"<p class='muted'>Factor levels (0–100) across projection steps. Baseline is 50.</p>"
-            f"<svg width={w} height={h} style='background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px'>"
-            f"{''.join(lines)}</svg>"
-            f"<p>{legend_html}</p>")
