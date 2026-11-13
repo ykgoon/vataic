@@ -3,6 +3,8 @@ import json, math, uuid
 import numpy as np
 
 from app.db import get_conn
+from app.narrate import (arc, delta_of, end_state, level_word, movement,
+                         onset, reversal, sanitize_prose, stays)
 
 BANDS = [(0.4, "dominant"), (0.2, "plausible"), (0.08, "alternative"), (0.0, "tail")]
 DISCLAIMER = "These are structured scenario explorations, not predictions."
@@ -46,12 +48,12 @@ def _pct(x: float) -> str:
 
 
 def _direction(v: float) -> str:
-    d = float(v) - 50.0
-    if d >= 15: return "well above baseline"
-    if d >= 3: return "above baseline"
-    if d <= -15: return "well below baseline"
-    if d <= -3: return "below baseline"
-    return "near baseline"
+    """Plain-English standing of a factor value relative to its starting level.
+
+    Was "well above baseline"/"below baseline": "baseline" is storage
+    vocabulary (every factor starts at 50), not something a reader knows.
+    """
+    return end_state(delta_of(v))
 
 
 def _factor_label(fs: dict, names: dict | None = None) -> str:
@@ -66,7 +68,7 @@ def _factor_label(fs: dict, names: dict | None = None) -> str:
     for k, v in sorted(fs.items(), key=lambda kv: abs(float(kv[1]) - 50.0), reverse=True):
         if not isinstance(v, (int, float)):
             continue
-        parts.append(f"{names.get(k, k)} {fmt(v)}")
+        parts.append(f"{names.get(k, k)}: {level_word(delta_of(v))}")
     return " / ".join(parts[:4]) if parts else ""
 
 
@@ -77,7 +79,7 @@ def _summarize(premise: str, rep: dict, g: list[dict], names: dict) -> str:
               if isinstance(v, (int, float)) and abs(float(v) - 50.0) >= 5.0]
     movers.sort(key=lambda t: abs(t[1] - 50.0), reverse=True)
     if movers:
-        top = ", ".join(f"{n} ends {_direction(v)}" for n, v in movers[:3])
+        top = "; ".join(f"{n} {end_state(delta_of(v))}" for n, v in movers[:3])
         return (f"By the end of the horizon, {top}. "
                 f"This path formed from {len(g)} evolving timeline(s) of the premise.")
     return (f"Factors stay close to their starting levels throughout the horizon; "
@@ -105,10 +107,11 @@ def _narrative(outcome: dict, premise: str, names: dict) -> str:
     movers = [(names.get(k, k), float(v)) for k, v in movers
               if isinstance(v, (int, float))][:4]
     if movers:
-        tops = ", ".join(f"{n} moves to {v:.0f}/100 ({_direction(v)})" for n, v in movers[:2])
+        tops = "; ".join(f"{n} {movement(delta_of(v))}" for n, v in movers[:2])
         rest = [n for n, _ in movers[2:]]
         lines.append(f"In this future, {tops}"
-                     + (", with " + " and ".join(rest) + " also shifting" if rest else "")
+                     + (", with " + " and ".join(rest) + " also " +
+                        ("moving" if len(rest) > 1 else "moving") if rest else "")
                      + ".")
     inds = outcome.get("indicators") or []
     if inds:
@@ -161,18 +164,20 @@ def _deterministic_enrich(o: dict, db_path=None, names: dict | None = None) -> d
     ranked = [(k, v) for k, v in
               sorted(numeric.items(), key=lambda kv: abs(float(kv[1]) - 50.0),
                      reverse=True) if abs(float(v) - 50.0) >= 1.0]
-    o["indicators"] = [f"{names.get(k, k)} drifting to {v:.0f}/100"
+    # Every line below describes a movement in words: how it starts, how it
+    # travels, where it lands. The 0-100 index, the 50 midpoint and the word
+    # "baseline" are storage details and never reach the reader.
+    o["indicators"] = [f"{names.get(k, k)} {onset(delta_of(v))}"
                        for k, v in ranked[:3]]
-    # Causal path: the pivotal factor shifts, ordered by magnitude.
-    o["causal_path"] = [f"{names.get(k, k)} shifted from 50 to {v:.0f}"
+    # Causal path: the pivotal factors, ordered by magnitude, each with its arc.
+    o["causal_path"] = [f"{names.get(k, k)} {arc(delta_of(v))}"
                         for k, v in ranked[:5]]
     # Assumptions: factor states that anchor this outcome.
-    o["assumptions"] = [f"{names.get(k, k)} stays {_direction(v)}"
+    o["assumptions"] = [f"{names.get(k, k)} {stays(delta_of(v))}"
                         for k, v in ranked[:3]] or \
                        ["No factor moves materially; the horizon stays calm"]
-    # Risks: factors that moved strongly in the adverse direction (band tail
-    # or large negative deviation) plus a generic tail-risk note.
-    o["risks"] = [f"{names.get(k, k)} snapping back to baseline would erase this path"
+    # Risks: what would walk this path back, plus a generic tail-risk note.
+    o["risks"] = [f"{names.get(k, k)} {reversal(delta_of(v))} would undo this path"
                   for k, v in ranked[:3]] or \
                  ["A large external shock could still reshuffle all factors"]
     if o.get("band") in ("tail", "alternative"):
@@ -188,7 +193,7 @@ def llm_cluster_labels(scenario_id: str, premise: str, groups: list[list[dict]],
         from app.llm.client import LLMClient, model_for_phase
         def _desc(g):
             fs = g[0].get("factor_state", {})
-            return ", ".join(f"{names.get(k, k)} {v:.0f}/100"
+            return ", ".join(f"{names.get(k, k)} {level_word(delta_of(v))}"
                              for k, v in sorted(fs.items(),
                                                 key=lambda kv: abs(float(kv[1]) - 50.0),
                                                 reverse=True)[:6])
@@ -198,7 +203,10 @@ def llm_cluster_labels(scenario_id: str, premise: str, groups: list[list[dict]],
             {"role": "system", "content":
              "Given a scenario premise and clustered end-states of explored timelines, "
              "name each cluster and give a one-sentence summary of how that future "
-             "unfolds for the premise. Respond ONLY with JSON of shape: "
+             "unfolds for the premise. The end-state digest describes each factor "
+             "relative to where it started, so never quote index numbers, fractions "
+             "like 62/100, or the word 'baseline' in what you return. "
+             "Respond ONLY with JSON of shape: "
              "{\"labels\": [{\"cluster\": int, \"name\": str, \"summary\": str}]}. "
              "Names must be specific to the premise (what actually happens, e.g. "
              "'SaaS becomes commodity data feed', 'Agent economy locks in the SaaS'), "
@@ -300,7 +308,13 @@ def explain(outcome: dict, use_llm=False, scenario_id="", db_path=None,
                  "it means for the premise question — reference the premise's actual subject and "
                  "question; never write generic filler), "
                  "indicators (list of early signals specific to the premise), assumptions (list), risks (list). "
-                 "Use plain language and full factor names; never raw factor ids."},
+                 "Use plain language and full factor names; never raw factor ids. "
+                 "Never quote index numbers, never write values like 35/100 or "
+                 "'from 50 to 35', and never say 'baseline': factors are scored on an "
+                 "internal 0-100 scale whose midpoint means 'where it started', and "
+                 "those numbers are meaningless to the reader. Describe each movement "
+                 "in words instead - how far it moved (slightly, noticeably, sharply, "
+                 "dramatically) and which direction, relative to where it started."},
                 {"role": "user", "content":
                  (("Premise: " + premise[:600] + "\n") if premise else "") +
                  json.dumps(outcome)[:3000]}],
@@ -308,6 +322,15 @@ def explain(outcome: dict, use_llm=False, scenario_id="", db_path=None,
             if isinstance(r, dict) and r.get("explanation"):
                 outcome.update({k: r.get(k, outcome.get(k)) for k in
                                 ("explanation", "indicators", "assumptions", "risks")})
+                # The prompt forbids quoting the index, but a model can still
+                # echo it. Keep the prose, rewrite the numbers.
+                for k in ("explanation", "indicators", "assumptions", "risks"):
+                    v = outcome.get(k)
+                    if isinstance(v, str):
+                        outcome[k] = sanitize_prose(v)
+                    elif isinstance(v, list):
+                        outcome[k] = [sanitize_prose(x) if isinstance(x, str) else x
+                                      for x in v]
         except Exception:
             pass
     if not outcome.get("explanation"):

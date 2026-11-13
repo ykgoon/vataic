@@ -31,7 +31,7 @@
           {% if s["rationale"].get("factor_moves") %}
           <div class="rationale-sec"><span class="rationale-label">Factor moves at this point</span>
             <ul>{% for m in s["rationale"]["factor_moves"] %}
-              <li>{{ m["name"] }}: {{ m["from"] }} &rarr; {{ m["to"] }} ({{ '+' if m["delta"] >= 0 else '' }}{{ m["delta"] }})</li>
+              <li>{{ m["name"] }} {{ m["phrase"] }}</li>
             {% endfor %}</ul>
           </div>
           {% endif %}

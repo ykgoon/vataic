@@ -66,7 +66,7 @@
       {% if o["end_deltas"] %}
       <div class="chips">
         {% for d in o["end_deltas"][:4] %}
-        <span class="chip">{{ d["name"] }} <span class="{{ 'up' if d["delta"] >= 0 else 'dn' }}">{{ '+' if d["delta"] >= 0 else '−' }}{{ '%.0f'|format(d["delta"]|abs) }}</span></span>
+        <span class="chip">{{ d["name"] }} <span class="{{ 'up' if d["delta"] >= 0 else 'dn' }}">{{ d["phrase"] }}</span></span>
         {% endfor %}
       </div>
       {% endif %}

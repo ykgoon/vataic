@@ -243,6 +243,151 @@ def test_migration_007_clears_errors_on_non_failed_scenarios():
     assert apply_pending(DB) == []
 
 
+# --------------------------------------------------------- plain-English narration
+# Regression guard: a completed report must never describe factor movement with
+# the storage format ("shifted from 50 to 35", "drifting to 35/100", "above
+# baseline", "snapping back to baseline", "ends at 78/100"). Those numbers are
+# meaningless to a reader; the text must say what actually happened in words.
+
+NUMERIC_PHRASING = ("/100", "shifted from", "drifting to", "snapping back",
+                    "baseline", "out of 100", "0=low")
+
+
+def _assert_narrated(text: str, where: str = ""):
+    low = (text or "").lower()
+    for bad in NUMERIC_PHRASING:
+        assert bad not in low, f"{where}: {bad!r} in {text!r}"
+
+
+def test_narrate_helpers_say_what_happened():
+    from app.narrate import (arc, delta_of, end_state, level_word, movement,
+                             onset, reversal, stays)
+    # Direction and size are both expressed, and no index leaks through.
+    assert movement(20).startswith("climbs")
+    assert movement(-20).startswith("drops")
+    assert "far above" in end_state(delta_of(80))
+    assert "far below" in end_state(delta_of(20))
+    assert magnitude_flat_ok(end_state(delta_of(50)))
+    for fn in (movement, end_state, level_word, onset, reversal, stays, arc):
+        for d in (-40, -20, -5, 0, 5, 20, 40):
+            _assert_narrated(fn(d), fn.__name__)
+
+
+def magnitude_flat_ok(phrase: str) -> bool:
+    return "close to where it started" in phrase
+
+
+def test_deterministic_enrichment_narrates_not_numbers():
+    from app.steps.synthesis import _deterministic_enrich, _narrative, _summarize
+    fs = {"f0": 35.0, "f1": 78.0, "f2": 50.0}
+    names = {"f0": "Income Trajectory", "f1": "Decision Confidence",
+             "f2": "Reputation"}
+    o = _deterministic_enrich({"band": "dominant", "factor_states": fs}, DB, names)
+    assert o["indicators"] and o["causal_path"] and o["risks"]
+    for field in ("indicators", "causal_path", "assumptions", "risks"):
+        for line in o[field]:
+            _assert_narrated(line, field)
+            assert "f0" not in line and "f1" not in line  # full names only
+    assert any("Income Trajectory" in i for i in o["indicators"])
+    # Direction is preserved in words, not merely stripped to a blank.
+    assert any("below" in c for c in o["causal_path"])
+    assert any("above" in c for c in o["causal_path"])
+    summary = _summarize("", {"factor_state": fs}, [{"id": "x"}], names)
+    _assert_narrated(summary, "summary")
+    explanation = _narrative({"band": "dominant", "probability": 0.5,
+                              "factor_states": fs,
+                              "indicators": o["indicators"], "risks": o["risks"]},
+                             "a premise", names)
+    _assert_narrated(explanation, "explanation")
+
+
+def test_completed_report_renders_no_index_numbers():
+    """End to end: a real run's results page, story partial and outcome text
+    contain no storage-format phrasing."""
+    from app import create_app
+    from app.scenarios.repos import create_scenario
+    from app.db import get_conn
+    from worker.workflows import ProjectionScenarioWorkflow
+
+    jid = create_scenario("A port city adapts to rising water.", db_path=DB, scope="macro")
+    ProjectionScenarioWorkflow.run_sync({"scenario_id": jid,
+                                         "premise": "A port city adapts to rising water.",
+                                         "scope": "macro", "outcome_count": 3})
+    with get_conn(DB) as c:
+        rows = [dict(r) for r in c.execute(
+            "SELECT summary,explanation,causal_path,indicators,assumptions,risks "
+            "FROM outcomes WHERE scenario_id=?", (jid,))]
+    assert rows
+    for r in rows:
+        for field, value in r.items():
+            _assert_narrated(value, field)
+
+    app = create_app({"TESTING": True})
+    cl = app.test_client()
+    for path in (f"/results/{jid}", f"/results/{jid}/story", f"/scenarios/{jid}"):
+        body = cl.get(path).get_data(as_text=True)
+        for bad in ("/100", "shifted from", "drifting to", "snapping back",
+                    "ends at 7", "0=low"):
+            assert bad not in body, f"{path}: {bad!r}"
+
+
+def test_sanitize_prose_rewrites_leaked_index_values():
+    from app.narrate import prose_has_index, sanitize_prose
+    cases = {
+        "Income falls from its starting point of 50 to roughly 35 out of 100.":
+            "ends well below where it started",
+        "three areas drift below their starting baseline":
+            "below starting point",
+        "Health Energy ends well below baseline (0/100).":
+            "Health Energy ends well below starting level.",
+        "shipping (Habit Consistency, around 66) helps.":
+            "at a much higher level",
+        "income drifts up to 62 out of 100.":
+            "drifts up to a higher level",
+    }
+    for src, expected in cases.items():
+        out = sanitize_prose(src)
+        assert expected in out, (src, out)
+        assert not prose_has_index(out), (src, out)
+    # Ordinary prose and probabilities are untouched.
+    plain = "This path has a 99.5 percent chance across 12 timelines."
+    assert sanitize_prose(plain) == plain
+
+
+def test_view_heals_already_stored_numeric_text():
+    """Reports stored before this change must read correctly without a rerun."""
+    from app import create_app
+    from app.scenarios.repos import create_scenario
+    from app.db import get_conn
+
+    jid = create_scenario("Legacy report", db_path=DB)
+    legacy_expl = ("This is the dominant future. Income Trajectory falls from its "
+                   "starting point of 50 to roughly 35 out of 100 and keeps sliding. "
+                   "These are structured scenario explorations, not predictions.")
+    with get_conn(DB) as c:
+        c.execute("INSERT INTO outcomes(id,scenario_id,name,probability,band,summary,"
+                  "factor_states,causal_path,indicators,assumptions,risks,explanation,"
+                  "representative_particle,enrichment) VALUES('oL',?,'Outcome 1',0.9,"
+                  "'dominant',?,'{\"f0\": 35.0}','[\"Income Trajectory shifted from 50 to 35\"]',"
+                  "'[\"Income Trajectory drifting to 35/100\"]',"
+                  "'[\"Income Trajectory stays below baseline\"]',"
+                  "'[\"Income Trajectory snapping back to baseline would erase this path\"]',"
+                  "?,'', '{}')",
+                  (jid, legacy_expl, legacy_expl))
+        c.execute("INSERT OR IGNORE INTO projection_scenarios"
+                  "(id,project_id,premise,scope,reality_mode,horizon,outcome_count,status)"
+                  " VALUES(?,'default','Legacy report','macro','grounded','auto',3,'COMPLETED')", (jid,))
+    app = create_app({"TESTING": True})
+    cl = app.test_client()
+    cl.get(f"/results/{jid}")          # a reader opening the page heals it
+    cl.get(f"/scenarios/{jid}")
+    with get_conn(DB) as c:
+        row = dict(c.execute("SELECT summary,explanation,causal_path,indicators,"
+                             "assumptions,risks FROM outcomes WHERE id='oL'").fetchone())
+    for field, value in row.items():
+        _assert_narrated(value, f"healed {field}")
+
+
 def test_dashboard_and_results_routes():
     from app import create_app
     app = create_app({"TESTING": True})

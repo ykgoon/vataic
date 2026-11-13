@@ -63,14 +63,18 @@ def fan_svg(fv: dict, factor_id: str, factor_name: str) -> tuple[str, list[str]]
     for gv in range(0, 101, 25):
         parts.append(f"<line x1='{l}' x2='{w - r}' y1='{Y(gv):.1f}' y2='{Y(gv):.1f}' "
                      f"stroke='#eef2f7' stroke-width='1'/>")
+        # The index itself is meaningless to a reader; name the extremes.
+        word = {0: "low", 50: "mid", 100: "high"}.get(gv, "")
         parts.append(f"<text x='{l - 8}' y='{Y(gv) + 4:.1f}' text-anchor='end' "
-                     f"font-size='11' fill='#94a3b8'>{gv}</text>")
+                     f"font-size='11' fill='#94a3b8'>{word}</text>")
     base = fv.get("baseline", {})
     base_val = float(base.get(factor_id, fv.get("baseline_default", 50.0)))
     parts.append(f"<line x1='{l}' x2='{w - r}' y1='{Y(base_val):.1f}' y2='{Y(base_val):.1f}' "
                  f"stroke='#94a3b8' stroke-width='1.5' stroke-dasharray='6 4'/>")
+    # "baseline 50" is the storage coordinate. The reader needs to know what
+    # the line means, not what number it sits at.
     parts.append(f"<text x='{w - r}' y='{Y(base_val) - 6:.1f}' text-anchor='end' "
-                 f"font-size='11' fill='#94a3b8'>baseline {_fmt(base_val)}</text>")
+                 f"font-size='11' fill='#94a3b8'>where it started</text>")
     legend = []
     for o in outcomes:
         s = o["series"][factor_id]

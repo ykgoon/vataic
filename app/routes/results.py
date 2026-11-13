@@ -229,8 +229,10 @@ def outcome_detail(jid, oid):
     if risks:
         parts.append(f"<p class='outcome-detail-risks'><strong>What could break it:</strong></p>{ul(risks, 'risk-list')}")
     if row["movers"]:
-        fac = "".join(f"<li>{html.escape(n)}: {v:.0f}/100</li>" for n, v in row["movers"])
-        parts.append(f"<p class='outcome-detail-factors'><strong>Key factors (0=low, 100=high):</strong></p><ul class='factor-list'>{fac}</ul>")
+        from app.narrate import delta_of, level_word
+        fac = "".join(f"<li>{html.escape(n)}: {level_word(delta_of(v))}</li>"
+                      for n, v in row["movers"])
+        parts.append(f"<p class='outcome-detail-factors'><strong>Key factors:</strong></p><ul class='factor-list'>{fac}</ul>")
     if alts_list:
         parts.append(f"<p class='outcome-detail-alts'><strong>Alternative timelines in this cluster:</strong> {', '.join(alts_list)}</p>")
     return "".join(parts)

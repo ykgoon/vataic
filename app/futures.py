@@ -10,9 +10,13 @@ import json
 import re
 
 from app.db import get_conn
+from app.narrate import delta_of, end_state, level_word, movement
 
 ARTIFACT_KIND = "futures_view"
-ARTIFACT_VERSION = 2
+# v3: story milestones and factor-move phrases are narrated in plain English
+# instead of the raw 0-100 index. Bumping the version makes every stored
+# artifact rebuild on next view, so existing scenarios get readable prose.
+ARTIFACT_VERSION = 3
 
 _JUNK_SUMMARY_RE = re.compile(r"^\d+ particles?$")
 _JUNK_TIME_RE = re.compile(r"^step-?\d+$", re.IGNORECASE)
@@ -256,7 +260,8 @@ def _factor_moves(prev: dict, cur: dict, names: dict, thresh=3.0) -> list[dict]:
         d = float(b) - float(a)
         if abs(d) >= thresh:
             moves.append({"name": names.get(k, k), "from": round(float(a), 1),
-                          "to": round(float(b), 1), "delta": round(d, 1)})
+                          "to": round(float(b), 1), "delta": round(d, 1),
+                          "phrase": movement(d)})
     moves.sort(key=lambda m: -abs(m["delta"]))
     return moves[:5]
 
@@ -286,18 +291,21 @@ def _milestones(rep_states: list[dict], names: dict, base_of, scope: str) -> lis
                     continue
                 crossed = ((pv - b) * (v - b) < 0) or (pv == b and abs(v - b) >= 1.0)
                 if crossed and abs(v - b) >= 1.0:
-                    direction = "rises above" if v > b else "falls below"
+                    # A crossing is the moment a factor passes its starting
+                    # level. The detection only knows that a crossing
+                    # happened, not that it held, so the line must not claim
+                    # permanence ("for good", "does not come back").
+                    direction = ("moves above where it started"
+                                 if v > b else "moves below where it started")
                     pts.append({"step": si, "kind": "milestone", "weight": abs(v - b),
-                                "text": f"{possessive(scope, names.get(k, k))} {direction} "
-                                        f"the baseline at {('step ' + str(si))}",
+                                "text": f"{possessive(scope, names.get(k, k))} {direction}",
                                 "factor_key": k})
             # largest single-step move
             moves = _factor_moves(p_fv, fv, names, thresh=5.0)
             if moves:
                 m = moves[0]
                 pts.append({"step": si, "kind": "milestone", "weight": abs(m["delta"]),
-                            "text": f"{m['name']} moves {m['delta']:+.0f} points "
-                                    f"({m['from']:.0f} → {m['to']:.0f}) at step {si}",
+                            "text": f"{possessive(scope, m['name'])} {movement(m['delta'])}",
                             "factor_key": m["name"]})
         prev = (si, fv)
     # end state
@@ -313,12 +321,21 @@ def _milestones(rep_states: list[dict], names: dict, base_of, scope: str) -> lis
         si, fv = last
         ranked = sorted(((k, v) for k, v in fv.items() if isinstance(v, (int, float))),
                         key=lambda kv: -abs(float(kv[1]) - base_of(kv[1])))
-        for k, v in ranked[:3]:
-            if abs(v - base_of(k)) >= 3.0:
-                pts.append({"step": si, "kind": "milestone", "weight": 1.0,
-                            "text": f"By step {si}, {possessive(scope, names.get(k, k))} "
-                                    f"ends at {v:.0f}/100",
-                            "factor_key": names.get(k, k)})
+        moved = [(k, v) for k, v in ranked[:3] if abs(v - base_of(k)) >= 3.0]
+        if moved:
+            # One closing line for the end state. Three separate "By the end
+            # of the horizon, X ends ..." bullets said the same thing three
+            # times and buried the shape of the outcome.
+            clauses = [f"{possessive(scope, names.get(k, k))} "
+                       f"{end_state(delta_of(v, base_of(k)))}" for k, v in moved]
+            if len(clauses) == 1:
+                text = f"By the end of the horizon, {clauses[0]}"
+            else:
+                text = (f"By the end of the horizon, " + "; ".join(clauses[:-1])
+                        + f"; and {clauses[-1]}")
+            pts.append({"step": si, "kind": "milestone", "weight": 1.0,
+                        "text": text, "factor_key": names.get(moved[0][0],
+                                                              moved[0][0])})
     # dedupe by (step, text), strongest first per step, keep chronological order
     seen: set[tuple] = set()
     out = []
@@ -329,6 +346,29 @@ def _milestones(rep_states: list[dict], names: dict, base_of, scope: str) -> lis
         seen.add(key)
         out.append(m)
     return out
+
+
+def _step_label(row: dict, step_index: int) -> str:
+    """Human time label for a step: the stored one when it is meaningful,
+    else a plain description of where in the horizon it sits."""
+    label = (row or {}).get("time_label") or ""
+    if label and not _JUNK_TIME_RE.match(label.strip()):
+        return label
+    return _human_step(step_index)
+
+
+def _human_step(step_index: int) -> str:
+    """Readable position in the horizon for a projection step.
+
+    Steps are internal loop indices; "step-38" says nothing to a reader.
+    """
+    try:
+        si = int(step_index)
+    except (TypeError, ValueError):
+        return "later in the horizon"
+    if si <= 0:
+        return "at the start"
+    return f"about {si} steps in"
 
 
 def derive_story(oid: str, rep_pid: str, states: dict, steps: list[dict],
@@ -377,7 +417,7 @@ def derive_story(oid: str, rep_pid: str, states: dict, steps: list[dict],
         si = int(s["step_index"])
         cur, prev = _fv_of(s), _fv_of(_state_at(rep_states, si - 1))
         steps_out.append({
-            "step": si, "label": _row_for(si).get("time_label") or f"step-{si}",
+            "step": si, "label": _step_label(_row_for(si), si),
             "text": "; ".join(ev[:3]), "cornerstone": True, "kind": "event",
             "rationale": {"kind": "event", "causal_chain": ev,
                           "factor_moves": _factor_moves(prev, cur, names),
@@ -398,7 +438,7 @@ def derive_story(oid: str, rep_pid: str, states: dict, steps: list[dict],
         cur, prev = _fv_of(_state_at(rep_states, si)), _fv_of(_state_at(rep_states, si - 1))
         text = tp[0] if tp else summary
         steps_out.append({
-            "step": si, "label": s.get("time_label") or f"step-{si}",
+            "step": si, "label": _step_label(s, si),
             "text": text[:220], "cornerstone": bool(tp), "kind": "step",
             "rationale": {"kind": "turning-point" if tp else "step",
                           "causal_chain": tp or ([summary] if summary else []),
@@ -413,7 +453,7 @@ def derive_story(oid: str, rep_pid: str, states: dict, steps: list[dict],
         si = m["step"]
         cur, prev = _fv_of(_state_at(rep_states, si)), _fv_of(_state_at(rep_states, si - 1))
         steps_out.append({
-            "step": si, "label": _row_for(si).get("time_label") or f"step-{si}",
+            "step": si, "label": _step_label(_row_for(si), si),
             "text": m["text"], "cornerstone": True, "kind": "milestone",
             "rationale": {"kind": "milestone",
                           "causal_chain": ["Derived from the stored factor trajectory "
@@ -468,7 +508,8 @@ def build_futures_view(jid: str, db_path=None) -> dict | None:
             "assumptions": _j(o.get("assumptions")),
             "risks": _j(o.get("risks")),
             "causal_path": _j(o.get("causal_path")),
-            "end_deltas": [{"id": k, "name": names.get(k, k), "delta": v}
+            "end_deltas": [{"id": k, "name": names.get(k, k), "delta": v,
+                            "phrase": level_word(v)}
                            for k, v in sorted(_end_deltas(series, base_of).items(),
                                               key=lambda kv: -abs(kv[1]))],
             "series": series,
