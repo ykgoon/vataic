@@ -159,6 +159,90 @@ def test_personal_subject_enrichment_stoploss_delete():
     delete_personal(jid, DB)
     assert get_subject(jid, DB) is None
 
+def test_retry_clears_previous_error_from_db_and_ui():
+    """A scenario that failed and was retried successfully must not keep
+    showing the previous attempt's error (dashboard row + detail page)."""
+    from app import create_app
+    from app.scenarios.repos import create_scenario, transition, get_scenario
+    from app.db import get_conn
+
+    app = create_app({"TESTING": True})
+    cl = app.test_client()
+    jid = create_scenario("retry premise", db_path=DB)
+
+    # Fail it the way the worker does: status FAILED plus the message column.
+    transition(jid, "INITIALIZING", db_path=DB)
+    transition(jid, "RUNNING", db_path=DB)
+    with get_conn(DB) as c:
+        c.execute("UPDATE projection_scenarios SET status='FAILED', error=?, updated_at=datetime('now')"
+                  " WHERE id=?", ("pipeline error: provider exploded", jid))
+
+    body = cl.get(f"/scenarios/{jid}").get_data(as_text=True)
+    assert "pipeline error: provider exploded" in body
+    assert "provider exploded" in cl.get("/scenarios/partial").get_data(as_text=True)
+
+    # Retry (as the UI button does) => FAILED -> QUEUED and the message is gone
+    # before the new run has produced anything.
+    r = cl.post(f"/scenarios/{jid}/retry")
+    assert r.status_code == 200
+    assert get_scenario(jid, DB)["status"] == "QUEUED"
+    assert not get_scenario(jid, DB)["error"]
+    assert "provider exploded" not in cl.get("/scenarios/partial").get_data(as_text=True)
+    assert "provider exploded" not in cl.get(f"/scenarios/{jid}").get_data(as_text=True)
+
+    # A successful run leaves no residue either.
+    from worker.workflows import ProjectionScenarioWorkflow
+    out = ProjectionScenarioWorkflow.run_sync(
+        {"scenario_id": jid, "premise": "retry premise", "scope": "macro", "outcome_count": 3})
+    assert "artifact" in out
+    row = get_scenario(jid, DB)
+    assert row["status"] == "COMPLETED" and not row["error"]
+    assert "provider exploded" not in cl.get("/scenarios/partial").get_data(as_text=True)
+    assert "scenario-error" not in cl.get(f"/scenarios/{jid}").get_data(as_text=True)
+
+
+def test_stale_error_not_rendered_for_successful_scenario():
+    """Rows written before the retry clearing existed can still carry an error
+    string while being COMPLETED/RUNNING: never render it as current."""
+    from app import create_app
+    from app.scenarios.repos import create_scenario, transition
+    from app.db import get_conn
+
+    app = create_app({"TESTING": True})
+    cl = app.test_client()
+    jid = create_scenario("legacy stale error", db_path=DB)
+    transition(jid, "INITIALIZING", db_path=DB)
+    transition(jid, "RUNNING", db_path=DB)
+    with get_conn(DB) as c:
+        # Legacy shape: the run recovered and kept going, the text was never cleared.
+        c.execute("UPDATE projection_scenarios SET error=? WHERE id=?",
+                  ("pipeline error: old news", jid))
+
+    body = cl.get(f"/scenarios/{jid}").get_data(as_text=True)
+    assert "old news" not in body
+    assert "old news" not in cl.get("/scenarios/partial").get_data(as_text=True)
+
+
+def test_migration_007_clears_errors_on_non_failed_scenarios():
+    from app.scenarios.repos import create_scenario, transition, get_scenario
+    from app.db import get_conn
+    from app.migrate import apply_pending
+
+    failed = create_scenario("still failed", db_path=DB)
+    completed = create_scenario("already recovered", db_path=DB)
+    with get_conn(DB) as c:
+        c.execute("UPDATE projection_scenarios SET status='FAILED', error='boom' WHERE id=?", (failed,))
+        c.execute("UPDATE projection_scenarios SET status='COMPLETED', error='stale boom' WHERE id=?",
+                  (completed,))
+        c.execute("DELETE FROM schema_migrations WHERE version='007_clear_stale_scenario_error'")
+
+    assert "007_clear_stale_scenario_error" in apply_pending(DB)
+    assert get_scenario(failed, DB)["error"] == "boom"      # current failure kept
+    assert not get_scenario(completed, DB)["error"]         # stale message dropped
+    # Idempotent on a second application.
+    assert apply_pending(DB) == []
+
+
 def test_dashboard_and_results_routes():
     from app import create_app
     app = create_app({"TESTING": True})

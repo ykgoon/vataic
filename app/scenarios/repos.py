@@ -54,6 +54,12 @@ def transition(jid: str, to_state: str, message="", db_path=None) -> dict:
             validate(frm, to_state)
             c.execute("UPDATE projection_scenarios SET status=?, updated_at=? WHERE id=?",
                       (to_state, now_iso(), jid))
+            # Leaving FAILED retires that run's error message: the row is being
+            # re-queued (retry) or parked (cancel), so the stale text must stop
+            # rendering on the dashboard and detail page immediately instead of
+            # waiting for the next run to overwrite or complete.
+            if frm == "FAILED":
+                c.execute("UPDATE projection_scenarios SET error=NULL WHERE id=?", (jid,))
             c.execute("INSERT INTO scenario_events(scenario_id,from_state,to_state,message) VALUES(?,?,?,?)",
                       (jid, frm, to_state, message))
             return {"from": frm, "to": to_state}
@@ -63,6 +69,29 @@ def append_event(jid: str, frm: str, to: str, message="", db_path=None) -> None:
     with get_conn(db_path) as c:
         c.execute("INSERT INTO scenario_events(scenario_id,from_state,to_state,message) VALUES(?,?,?,?)",
                   (jid, frm, to, message))
+
+def clear_error(jid: str, db_path=None) -> bool:
+    """Forget the last failure message recorded for a scenario.
+
+    ``projection_scenarios.error`` is a sticky, human-facing field: the worker
+    writes it when a run fails and the dashboard row + detail page render it
+    whenever it is non-empty. A scenario that failed and is later retried
+    successfully must not keep advertising the previous run's failure, so the
+    message is cleared at the two points where it stops being true. See the
+    call sites: ``transition()`` clears it when a row leaves FAILED (retry
+    re-queues, cancel parks), so the text is gone before the new run starts;
+    ``act_finalize()`` clears it on a successful completion, which also covers
+    recovery paths that never passed through FAILED -> QUEUED. Returns True
+    when a row was actually updated.
+    """
+    def _once():
+        with get_conn(db_path) as c:
+            cur = c.execute(
+                "UPDATE projection_scenarios SET error=NULL, updated_at=?"
+                " WHERE id=? AND error IS NOT NULL", (now_iso(), jid))
+            return cur.rowcount > 0
+    return _write_retry(_once)
+
 
 def list_scenarios(db_path=None) -> list[dict]:
     with get_conn(db_path) as c:

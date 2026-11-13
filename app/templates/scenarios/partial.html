@@ -16,7 +16,7 @@
     {% endif %}
   </td>
   <td>{{ j.updated_at[:16] if j.updated_at else "—" }}</td>
-  <td class="error-cell">{{ j.error[:60] if j.error else "—" }}</td>
+  <td class="error-cell">{% if j.status == 'FAILED' and j.error %}{{ j.error[:60] }}{% else %}—{% endif %}</td>
   <td>
     {% if j.status == 'FAILED' %}
     <button hx-post="/scenarios/{{ j.id }}/retry" hx-target="#status-{{ j.id }}" hx-swap="innerHTML" class="btn btn-sm btn-secondary">Retry</button>

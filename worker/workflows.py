@@ -435,6 +435,14 @@ def act_finalize(inp: dict) -> dict:
         transition(jid, "COMPLETED", "finalized")
     except Exception:
         pass
+    # Recovery path: a scenario re-driven to COMPLETED without passing through
+    # FAILED -> QUEUED (e.g. it was re-entered from a post-loop phase) can still
+    # carry the message from an earlier failed attempt. Success wins.
+    try:
+        from app.scenarios.repos import clear_error
+        clear_error(jid)
+    except Exception:
+        pass
     return {"artifact": art["id"]}
 
 

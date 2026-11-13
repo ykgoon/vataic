@@ -31,7 +31,10 @@
     </div>
   </div>
 
-  {% if scenario["error"] %}
+  {# Only a FAILED scenario owns an error message. A retried-then-successful
+     run must not keep showing the previous attempt's text; rows written before
+     the error was cleared on retry can still carry one, so gate on status too. #}
+  {% if scenario["status"] == 'FAILED' and scenario["error"] %}
   <div class="scenario-error">
     <h2>Error</h2>
     <p class="error-text">{{ scenario["error"] }}</p>
