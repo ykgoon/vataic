@@ -424,7 +424,7 @@ def derive_story(oid: str, rep_pid: str, states: dict, steps: list[dict],
                           "assumptions": assumptions[:3]}})
     if steps_out:
         steps_out.sort(key=lambda x: x["step"])
-        return steps_out[:8], "events"
+        return steps_out, "events"
 
     # Tier 2: shared step summaries + turning points (skip junk summaries).
     for s in steps:
@@ -439,17 +439,17 @@ def derive_story(oid: str, rep_pid: str, states: dict, steps: list[dict],
         text = tp[0] if tp else summary
         steps_out.append({
             "step": si, "label": _step_label(s, si),
-            "text": text[:220], "cornerstone": bool(tp), "kind": "step",
+            "text": text, "cornerstone": bool(tp), "kind": "step",
             "rationale": {"kind": "turning-point" if tp else "step",
                           "causal_chain": tp or ([summary] if summary else []),
                           "factor_moves": _factor_moves(prev, cur, names),
                           "assumptions": assumptions[:3]}})
     if steps_out:
         steps_out.sort(key=lambda x: x["step"])
-        return steps_out[:8], "steps"
+        return steps_out, "steps"
 
     # Tier 3: factor milestones from the representative trajectory.
-    for m in _milestones(rep_states, names, base_of, scope)[:8]:
+    for m in _milestones(rep_states, names, base_of, scope):
         si = m["step"]
         cur, prev = _fv_of(_state_at(rep_states, si)), _fv_of(_state_at(rep_states, si - 1))
         steps_out.append({

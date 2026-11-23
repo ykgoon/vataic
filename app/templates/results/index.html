@@ -59,10 +59,28 @@
       <span class="badge badge-{{ o["band"]|lower }}">{{ o["band"] }}</span>
       <h3>{{ o["short_name"] }}</h3>
       <div class="prob">{{ o["share_pct"] }}% &middot; {{ o["members"] }} of {{ fv["timelines_explored"] }} timelines</div>
-      <p class="arc">{{ (o["explanation"] or o["summary"])[:240] }}{% if (o["explanation"] or o["summary"])|length > 240 %}&hellip;{% endif %}</p>
+      {% set arc_text = o["explanation"] or o["summary"] %}
+      {% if arc_text|length > 240 %}
+      <details class="oc-story">
+        <summary>Arc</summary>
+        <p class="arc">{{ arc_text }}</p>
+        {% if o["llm_named"] and o["summary"] and o["explanation"] %}
+        <p class="muted">{{ o["summary"] }}</p>
+        {% endif %}
+      </details>
+      {% else %}
+      <p class="arc">{{ arc_text }}</p>
       {% if o["llm_named"] and o["summary"] and o["explanation"] %}
-      <p class="muted">{{ o["summary"][:160] }}{% if o["summary"]|length > 160 %}&hellip;{% endif %}</p>
+      <p class="muted">{{ o["summary"] }}</p>
       {% endif %}
+      {% endif %}
+      <details class="oc-story" id="oc-story-{{ o["id"] }}">
+        <summary>Read the full story</summary>
+        <div class="oc-story-body"
+             hx-get="/results/{{ scenario['id'] }}/story?oid={{ o['id'] }}&expand=1"
+             hx-trigger="reveal once, click from:body"
+             hx-swap="innerHTML">Loading story&hellip;</div>
+      </details>
       {% if o["end_deltas"] %}
       <div class="chips">
         {% for d in o["end_deltas"][:4] %}
