@@ -28,13 +28,13 @@ def now_iso() -> str:
 
 # ---- scenarios ----
 def create_scenario(premise: str, scope="macro", reality_mode="grounded", horizon="auto",
-               outcome_count=7, project_id="default", db_path=None) -> str:
+               outcome_count=7, project_id="default", decision_context: str = "", db_path=None) -> str:
     jid = uuid.uuid4().hex[:12]
     with get_conn(db_path) as c:
         c.execute("INSERT OR IGNORE INTO projects(id,name) VALUES('default','default')");
         c.execute("""INSERT INTO projection_scenarios(id,project_id,premise,scope,reality_mode,
-          horizon,outcome_count,status) VALUES(?,?,?,?,?,?,?, 'QUEUED')""",
-          (jid, project_id, premise, scope, reality_mode, horizon, outcome_count))
+          horizon,outcome_count,decision_context,status) VALUES(?,?,?,?,?,?,?,?,?, 'QUEUED')""",
+          (jid, project_id, premise, scope, reality_mode, horizon, outcome_count, decision_context))
         c.execute("INSERT INTO scenario_events(scenario_id,from_state,to_state,message) VALUES(?,?,?,?)",
           (jid, "DRAFT", "QUEUED", "scenario accepted"))
     return jid

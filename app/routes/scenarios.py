@@ -19,6 +19,7 @@ def new_scenario():
         reality_mode=request.form.get("reality_mode", "grounded"),
         horizon=request.form.get("horizon", "auto"),
         outcome_count=request.form.get("outcome_count", "7"),
+        decision_context=request.form.get("decision_context", ""),
     )
     # Spec: communicate that the projection may take hours and browser may be closed
     flash(
@@ -281,7 +282,8 @@ def reexplain(jid):
             o = {"name": r["name"], "probability": r["probability"], "band": r["band"],
                  "summary": r["summary"], "factor_states": _j(r.get("factor_states")),
                  "indicators": _j(r.get("indicators")), "assumptions": _j(r.get("assumptions")),
-                 "risks": _j(r.get("risks")), "causal_path": _j(r.get("causal_path"))}
+                 "risks": _j(r.get("risks")), "causal_path": _j(r.get("causal_path")),
+                 "order": r.get("order")}
             e = explain(o, use_llm=True, scenario_id=jid, premise=premise)
             if e.get("explanation") and e["explanation"] != (r.get("explanation") or ""):
                 def _upd(_e=e, _rid=r["id"]):
@@ -303,6 +305,27 @@ def reexplain(jid):
     except Exception as e:
         return render_template("scenarios/status_badge.html", status=f"error: {e}")
 
+
+
+@bp.get("/scenarios/<jid>/backcast")
+def backcast(jid):
+    """LLM-driven backcast: work backwards from outcomes to identify
+    decisions that would lead to each future."""
+    from app.scenarios.repos import get_scenario
+    from app.backcast import backcast_to_decisions, save_backcast
+    scenario = get_scenario(jid) or {}
+    if not scenario:
+        return render_template("scenarios/status_badge.html", status="not found")
+    if scenario.get("status") != "COMPLETED":
+        return render_template("scenarios/status_badge.html", status="not completed")
+    try:
+        result = backcast_to_decisions(jid)
+        if result:
+            save_backcast(jid, result)
+            return render_template("scenarios/status_badge.html", status=f"backcast: {len(result)} outcomes")
+        return render_template("scenarios/status_badge.html", status="backcast empty")
+    except Exception as e:
+        return render_template("scenarios/status_badge.html", status=f"backcast error: {e}")
 
 @bp.get("/scenarios/<jid>/review")
 def review(jid):

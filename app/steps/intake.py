@@ -14,17 +14,19 @@ def detect_crisis(premise: str) -> bool:
     low = premise.lower()
     return any(k in low for k in CRISIS_KEYWORDS)
 
-def heuristic_parse(premise: str, scope: str, reality_mode: str, horizon: str) -> dict:
+def heuristic_parse(premise: str, scope: str, reality_mode: str, horizon: str,
+                    decision_context: str = "") -> dict:
     axioms = [premise.strip()]
-    entities = re.findall(r"[A-Z][a-z]+(?:\s[A-Z][a-z]+)*", premise)[:8]
+    entities = re.findall(r"[A-Z][a-z]+(?:\s [A-Z][a-z]+)*", premise)[:8]
     low = premise.lower()
     ptype = "personal" if any(w in low for w in ("i ", "my ", "career", "job", "marriage")) else "event"
     return {"premise_type": ptype, "axioms": axioms, "entities": entities,
             "systems": ["economy"] if "price" in low or "house" in low else ["general"],
-            "reality_mode": reality_mode, "horizon": horizon or DEFAULT_HORIZON}
+            "reality_mode": reality_mode, "horizon": horizon or DEFAULT_HORIZON,
+            "decision_context": decision_context}
 
 def parse_scenario(scenario_id: str, premise: str, scope="macro", reality_mode="grounded",
-                   horizon="auto", use_llm: bool = False, db_path=None) -> dict:
+                   horizon="auto", decision_context="", use_llm: bool = False, db_path=None) -> dict:
     key = idem_key(scenario_id, "parse", 0, "", premise[:64])
     cached = idem_get(key, db_path)
     if cached: return cached
@@ -37,31 +39,31 @@ def parse_scenario(scenario_id: str, premise: str, scope="macro", reality_mode="
             c.execute("INSERT INTO safety_flags(scenario_id,flagged,reason,resources) VALUES(?,?,?,?)",
                       (scenario_id, 1, "crisis-topic detected", SAFETY_RESOURCES))
         result = {"halted": True, "reason": "crisis", "resources": SAFETY_RESOURCES,
-                  "assumptions": assumptions}
+                  "assumptions": assumptions, "decision_context": decision_context}
         idem_put(key, result, db_path)
         return result
     if use_llm:
         try:
             from app.llm.client import LLMClient, model_for_phase
+            dc_text = f"\n\nDecision context: {decision_context}" if decision_context else ""
             out = LLMClient(db_path=db_path).chat(scenario_id, "parse", [
-                {"role": "system", "content": "Parse premise into JSON: premise_type, axioms, entities, systems, reality_mode, horizon."},
-                {"role": "user", "content": premise}], model=model_for_phase("parse"))["json"]
+                {"role": "system", "content": "Parse premise into JSON: premise_type, axioms, entities, systems, reality_mode, horizon, decision_context."},
+                {"role": "user", "content": premise + dc_text}], model=model_for_phase("parse"))["json"]
         except Exception as e:
-            # Real scenario prose depends on this call; never degrade silently —
-            # log so heuristic-mode outcomes are attributable to a cause.
             logging.getLogger(__name__).warning(
                 "parse phase LLM call failed (%s); falling back to heuristic parse", e)
-            out = heuristic_parse(premise, scope, reality_mode, horizon)
+            out = heuristic_parse(premise, scope, reality_mode, horizon, decision_context)
     else:
-        out = heuristic_parse(premise, scope, reality_mode, horizon)
+        out = heuristic_parse(premise, scope, reality_mode, horizon, decision_context)
     out.setdefault("assumptions", assumptions)
+    out.setdefault("decision_context", decision_context)
     out["halted"] = False
     with get_conn(db_path) as c:
         c.execute("""INSERT OR REPLACE INTO scenario_inputs(scenario_id,premise,premise_type,axioms,
-          entities,systems,reality_mode,horizon,assumptions) VALUES(?,?,?,?,?,?,?,?,?)""",
+          entities,systems,reality_mode,horizon,assumptions,decision_context) VALUES(?,?,?,?,?,?,?,?,?,?)""",
           (scenario_id, premise, out.get("premise_type", "event"), json.dumps(out.get("axioms", [])),
            json.dumps(out.get("entities", [])), json.dumps(out.get("systems", [])),
            out.get("reality_mode", reality_mode), out.get("horizon", horizon),
-           json.dumps(out.get("assumptions", []))))
+           json.dumps(out.get("assumptions", [])), out.get("decision_context", decision_context)))
     idem_put(key, out, db_path)
     return out

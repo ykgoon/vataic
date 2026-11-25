@@ -7,6 +7,9 @@
     {% if scenario["premise"] %}
     <p class="results-premise">&ldquo;{{ scenario["premise"] }}&rdquo;</p>
     {% endif %}
+    {% if scenario["decision_context"] %}
+    <p class="results-context">{{ scenario["decision_context"] }}</p>
+    {% endif %}
     <div class="futures-meta">
       <span>horizon: {{ fv["horizon"] }}</span>
       <span>&middot;</span>
@@ -57,6 +60,7 @@
     {% for o in fv["outcomes"] %}
     <div class="oc" style="border-top: 3px solid {{ o["color"] }}">
       <span class="badge badge-{{ o["band"]|lower }}">{{ o["band"] }}</span>
+      {% if o["order"] %}<span class="order-badge">O{{ o["order"] }}</span>{% endif %}
       <h3>{{ o["short_name"] }}</h3>
       <div class="prob">{{ o["share_pct"] }}% &middot; {{ o["members"] }} of {{ fv["timelines_explored"] }} timelines</div>
       {% set arc_text = o["explanation"] or o["summary"] %}
