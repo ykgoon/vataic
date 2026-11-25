@@ -33,7 +33,7 @@ def create_scenario(premise: str, scope="macro", reality_mode="grounded", horizo
     with get_conn(db_path) as c:
         c.execute("INSERT OR IGNORE INTO projects(id,name) VALUES('default','default')");
         c.execute("""INSERT INTO projection_scenarios(id,project_id,premise,scope,reality_mode,
-          horizon,outcome_count,decision_context,status) VALUES(?,?,?,?,?,?,?,?,?, 'QUEUED')""",
+          horizon,outcome_count,decision_context,status) VALUES(?,?,?,?,?,?,?,?, 'QUEUED')""",
           (jid, project_id, premise, scope, reality_mode, horizon, outcome_count, decision_context))
         c.execute("INSERT INTO scenario_events(scenario_id,from_state,to_state,message) VALUES(?,?,?,?)",
           (jid, "DRAFT", "QUEUED", "scenario accepted"))

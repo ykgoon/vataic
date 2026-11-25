@@ -992,18 +992,18 @@ textarea {
   color: var(--muted);
 }
 
-.outcome-factors, .outcome-indicators, .outcome-risks {
+.outcome-factors, .outcome-watches {
   margin-top: 12px;
   font-size: 13px;
 }
 
-.outcome-factors span, .outcome-indicators span, .outcome-risks span {
+.outcome-factors span, .outcome-watches span {
   display: block;
   color: var(--muted);
   margin-bottom: 6px;
 }
 
-.factor-list, .indicator-list, .assumption-list, .risk-list {
+.factor-list, .watch-list {
   padding-left: 20px;
   color: var(--muted);
   line-height: 1.5;
@@ -1116,6 +1116,11 @@ textarea {
 .oc-details { margin-top: 8px; border-top: 1px dashed #e2e8f0; padding-top: 6px; }
 .oc-details summary { font-size: 12px; color: #475569; cursor: pointer; user-select: none; }
 .oc-details ul { margin: 6px 0 0; padding-left: 18px; font-size: 12.5px; color: #334155; }
+/* Consolidated watch/unwind list: one line per factor, in the story panel
+   and the legacy detail view (replaces the four overlapping lists). */
+.watch-list { margin: 8px 0 0; padding-left: 18px; font-size: 12.5px; color: #334155; }
+.watch-list li { margin-bottom: 3px; }
+.outcome-detail-watches { margin: 12px 0 4px; }
 .badge { font-size: 10px; font-weight: 700; text-transform: uppercase; padding: 2px 7px; border-radius: 9px; color: #fff; }
 .badge-dominant { background: #2563eb; }
 .badge-plausible { background: #d97706; }

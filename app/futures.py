@@ -10,13 +10,13 @@ import json
 import re
 
 from app.db import get_conn
-from app.narrate import delta_of, end_state, level_word, movement
+from app.narrate import (delta_of, end_state, level_word, movement,
+                         watch_line)
 
 ARTIFACT_KIND = "futures_view"
-# v3: story milestones and factor-move phrases are narrated in plain English
-# instead of the raw 0-100 index. Bumping the version makes every stored
-# artifact rebuild on next view, so existing scenarios get readable prose.
-ARTIFACT_VERSION = 3
+# v4: each outcome carries one `watches` list (early signal + what would undo
+# the path, per factor) instead of four overlapping lists.
+ARTIFACT_VERSION = 4
 
 _JUNK_SUMMARY_RE = re.compile(r"^\d+ particles?$")
 _JUNK_TIME_RE = re.compile(r"^step-?\d+$", re.IGNORECASE)
@@ -52,7 +52,8 @@ def possessive(scope: str, name: str) -> str:
 def _load_scenario_data(jid: str, db_path=None):
     with get_conn(db_path) as c:
         scenario = c.execute(
-            "SELECT id, premise, scope, horizon, status, outcome_count, updated_at "
+            "SELECT id, premise, scope, horizon, status, outcome_count, updated_at, "
+            "decision_context, backcast "
             "FROM projection_scenarios WHERE id=?", (jid,)).fetchone()
         outcomes = [dict(r) for r in c.execute(
             "SELECT * FROM outcomes WHERE scenario_id=? ORDER BY probability DESC", (jid,))]
@@ -405,7 +406,6 @@ def derive_story(oid: str, rep_pid: str, states: dict, steps: list[dict],
         return {k: float(v) for k, v in fv.items() if isinstance(v, (int, float))} \
             if isinstance(fv, dict) else {}
 
-    assumptions = _j(outcome.get("assumptions"))
     rep_states = states.get(rep_pid, [])
 
     # Tier 1: recorded events on the representative particle.
@@ -421,7 +421,7 @@ def derive_story(oid: str, rep_pid: str, states: dict, steps: list[dict],
             "text": "; ".join(ev[:3]), "cornerstone": True, "kind": "event",
             "rationale": {"kind": "event", "causal_chain": ev,
                           "factor_moves": _factor_moves(prev, cur, names),
-                          "assumptions": assumptions[:3]}})
+                          "assumptions": []}})
     if steps_out:
         steps_out.sort(key=lambda x: x["step"])
         return steps_out, "events"
@@ -443,7 +443,7 @@ def derive_story(oid: str, rep_pid: str, states: dict, steps: list[dict],
             "rationale": {"kind": "turning-point" if tp else "step",
                           "causal_chain": tp or ([summary] if summary else []),
                           "factor_moves": _factor_moves(prev, cur, names),
-                          "assumptions": assumptions[:3]}})
+                          "assumptions": []}})
     if steps_out:
         steps_out.sort(key=lambda x: x["step"])
         return steps_out, "steps"
@@ -459,7 +459,7 @@ def derive_story(oid: str, rep_pid: str, states: dict, steps: list[dict],
                           "causal_chain": ["Derived from the stored factor trajectory "
                                            "(no recorded events for this run)"],
                           "factor_moves": _factor_moves(prev, cur, names),
-                          "assumptions": assumptions[:3]}})
+                          "assumptions": []}})
     return steps_out, "milestones"
 
 
@@ -504,6 +504,15 @@ def build_futures_view(jid: str, db_path=None) -> dict | None:
             "representative": o.get("representative_particle") or "",
             "summary": o["summary"] or "",
             "explanation": o["explanation"] or "",
+            # The card shows one ranked list of what to watch and what would
+            # undo this path, folded per factor; the old indicators/assumptions/
+            # risks/causal_path lists all restated the same factors.
+            # _end_deltas already returns signed deltas, so they feed the
+            # phrasing helpers directly (do not re-subtract the baseline).
+            "watches": [watch_line(names.get(k, k), v)
+                        for k, v in sorted(_end_deltas(series, base_of).items(),
+                                           key=lambda kv: -abs(kv[1]))[:4]
+                        if abs(v) >= 1.0],
             "indicators": _j(o.get("indicators")),
             "assumptions": _j(o.get("assumptions")),
             "risks": _j(o.get("risks")),
@@ -524,8 +533,10 @@ def build_futures_view(jid: str, db_path=None) -> dict | None:
     human_time = any(v and not _JUNK_TIME_RE.match(v) for v in tl.values())
 
     dominant = max(sources, key=lambda s: (s == "events", s == "steps")) if sources else "milestones"
-    fv["decision_context"] = scenario.get("decision_context", "")
-    fv["backcast"] = scenario.get("backcast", "")
+    _decision_context = (scenario["decision_context"]
+                         if "decision_context" in scenario.keys() else "") or ""
+    _backcast = (scenario["backcast"]
+                 if "backcast" in scenario.keys() else "") or ""
     return {
         "version": ARTIFACT_VERSION,
         "scenario_id": jid,
@@ -541,6 +552,8 @@ def build_futures_view(jid: str, db_path=None) -> dict | None:
         "baseline_default": base_default,
         "human_time_labels": human_time,
         "time_labels": tl,
+        "decision_context": _decision_context,
+        "backcast": _backcast,
         "outcomes": out_rows,
         "branch_points": branch_points,
     }

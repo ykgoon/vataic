@@ -86,8 +86,9 @@ def test_futures_view_renders_all_sections():
     # probability split with share-and-count
     assert "70%" in body and "30%" in body
     assert "1 of 2 timelines" in body
-    # fan chart present with baseline
-    assert "fan-svg" in body and "baseline" in body
+    # fan chart present, with the start level named in plain words (the
+    # storage word "baseline" is deliberately never user-facing)
+    assert "fan-svg" in body and "where it started" in body
     # personal-scope phrasing
     assert "takes your factors" in body
     # futures map + story panel
@@ -99,6 +100,32 @@ def test_futures_view_renders_all_sections():
     # retired debug pages are not linked from the results view
     assert "/tree" not in body
     assert "/trajectories" not in body
+
+
+def test_outcome_cards_consolidate_redundant_sections():
+    """Each card must carry one narrative section, not four overlapping lists.
+
+    Causal path / Watch for / Assumes / What could break it all restated the
+    same ranked factors, so they are folded into a single story section with
+    one watch-and-unwind line per factor.
+    """
+    from app import create_app
+    jid = _seed_completed_scenario("personal")
+    app = create_app({"TESTING": True})
+    cl = app.test_client()
+    body = cl.get(f"/results/{jid}").get_data(as_text=True)
+    for retired in (">Watch for<", ">Assumes<", ">What could break it<",
+                    ">Causal path<"):
+        assert retired not in body, retired
+    assert body.count(">Read the full story<") >= 1
+
+    oid_body = cl.get(f"/results/{jid}/story?oid=oA&expand=1&hide_explanation=1")
+    assert oid_body.status_code == 200
+    story = oid_body.get_data(as_text=True)
+    assert 'class="story-explanation"' not in story
+    # Plain-language watch/unwind line present when a factor moves.
+    assert "What to watch, and what would undo this path" in story
+    assert "this path unwinds" in story
 
 
 def test_retired_debug_pages_are_gone():
@@ -148,7 +175,7 @@ def test_fan_and_story_partials():
     body2 = r2.get_data(as_text=True)
     assert "Grind through" in body2
     assert "story-source-note" in body2       # milestones disclosure
-    assert "Early signals" in body2 or "early-signals" in body2
+    assert "What to watch, and what would undo this path" in body2
 
 
 def test_rationale_missing_branch_is_graceful():

@@ -26,11 +26,9 @@
             {% endfor %}</ul>
           </div>
           {% endif %}
-          {% if s["rationale"].get("assumptions") %}
-          <div class="rationale-sec"><span class="rationale-label">Depends on</span>
-            <ul>{% for a in s["rationale"]["assumptions"] %}<li>{{ a }}</li>{% endfor %}</ul>
-          </div>
-          {% endif %}
+          {# "Depends on" repeated the same outcome-level assumptions on every
+             step; the consolidated watch/unwind list after the steps covers
+             what this path requires. #}
         </div>
       </details>
       {% endif %}

@@ -140,6 +140,28 @@ def reversal(delta: float) -> str:
     return "rebounding toward where it started"
 
 
+def reversal_verb(delta: float) -> str:
+    """Finite-verb form of reversal(), for a clause after "if it ..."."""
+    m = magnitude(delta)
+    if m == 0:
+        return "moves off that level"
+    return "falls back toward where it started" if _up(delta) \
+        else "rebounds toward where it started"
+
+
+def watch_line(name: str, delta: float) -> str:
+    """One line folding a factor's early signal and its fragility together.
+
+    The four card sections this replaces (causal path, watch-for, assumes,
+    what-could-break-it) each restated the same ranked factor list in a
+    different verb register. Stating each factor once, with what to watch and
+    what would undo it, keeps every piece of information and drops the
+    repetition.
+    """
+    return (f"{name}: {onset(delta)}; if it {reversal_verb(delta)}, "
+            f"this path unwinds")
+
+
 def arc(delta: float) -> str:
     """The whole story of one factor in a single clause for causal paths.
 

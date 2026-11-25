@@ -158,8 +158,9 @@ def story(jid):
         return "<p class='muted'>no outcomes</p>"
     _with_colors(fv)
     expand = request.args.get("expand") == "1"
+    hide_explanation = request.args.get("hide_explanation") == "1"
     rendered = render_template("results/partials/story.html", jid=jid, o=o, fv=fv,
-                               expand_all=expand)
+                               expand_all=expand, hide_explanation=hide_explanation)
     return rendered if _is_htmx() else _wrap(rendered, "Path story")
 
 
@@ -189,7 +190,7 @@ def rationale(jid):
 @bp.get("/results/<jid>/outcome/<oid>")
 def outcome_detail(jid, oid):
     from app.db import get_conn
-    from app.present import prepare_outcomes, repair_legacy_outcomes, as_list
+    from app.present import prepare_outcomes, repair_legacy_outcomes
     repair_legacy_outcomes(jid)
     with get_conn() as c:
         o = c.execute("SELECT * FROM outcomes WHERE id=?", (oid,)).fetchone()
@@ -203,10 +204,6 @@ def outcome_detail(jid, oid):
     band = html.escape(row["band"])
     name = html.escape(row["name"])
     summary = html.escape(row["summary"])
-    indicators = row["indicators"]
-    assumptions = row["assumptions"]
-    risks = row["risks"]
-    causal = row["causal_path"]
     explanation = html.escape(row["explanation"] or "No explanation recorded.")
     alts_list = [html.escape(a["particle_id"]) for a in alts]
 
@@ -220,19 +217,20 @@ def outcome_detail(jid, oid):
     parts.append(f"<h2 class='outcome-detail-name'>{name} <span class='outcome-prob'>{row['prob_display']}</span> [{band}]</h2>")
     parts.append(f"<p class='outcome-detail-summary'>{summary}</p>")
     parts.append(f"<details class='outcome-detail-explanation' open><summary>What this means</summary><p>{explanation}</p></details>")
-    if causal:
-        parts.append(f"<p class='outcome-detail-causal'><strong>How it unfolded:</strong></p>{ul(causal, 'causal-list')}")
-    if indicators:
-        parts.append(f"<p class='outcome-detail-indicators'><strong>Watch for (leading indicators):</strong></p>{ul(indicators, 'indicator-list')}")
-    if assumptions:
-        parts.append(f"<p class='outcome-detail-assumptions'><strong>Assumes:</strong></p>{ul(assumptions, 'assumption-list')}")
-    if risks:
-        parts.append(f"<p class='outcome-detail-risks'><strong>What could break it:</strong></p>{ul(risks, 'risk-list')}")
-    if row["movers"]:
-        from app.narrate import delta_of, level_word
-        fac = "".join(f"<li>{html.escape(n)}: {level_word(delta_of(v))}</li>"
-                      for n, v in row["movers"])
-        parts.append(f"<p class='outcome-detail-factors'><strong>Key factors:</strong></p><ul class='factor-list'>{fac}</ul>")
+    # One consolidated narrative list: each factor appears once, with what to
+    # watch and what would undo the path. The old causal/indicator/assumption/
+    # risk lists each restated the same ranked factors.
+    with get_conn() as c:
+        mrow = c.execute("SELECT factor_states FROM outcomes WHERE id=?", (oid,)).fetchone()
+    try:
+        fs = json.loads((mrow["factor_states"] if mrow else "") or "{}")
+    except Exception:
+        fs = {}
+    from app.present import factor_names_for_scenario, watches_for
+    names = factor_names_for_scenario(jid)
+    watches = watches_for(fs, names)
+    if watches:
+        parts.append(f"<p class='outcome-detail-watches'><strong>What to watch, and what would undo this path:</strong></p>{ul(watches, 'watch-list')}")
     if alts_list:
         parts.append(f"<p class='outcome-detail-alts'><strong>Alternative timelines in this cluster:</strong> {', '.join(alts_list)}</p>")
     return "".join(parts)

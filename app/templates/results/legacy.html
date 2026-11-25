@@ -30,34 +30,14 @@
       </div>
       {% endif %}
 
-      {% if o["indicators"] %}
-      <div class="outcome-indicators">
-        <span class="outcome-label">Watch for</span>
-        <ul class="indicator-list">
-          {% for ind in o["indicators"] %}
-          <li>{{ ind }}</li>
-          {% endfor %}
-        </ul>
-      </div>
-      {% endif %}
-
-      {% if o["assumptions"] %}
-      <div class="outcome-assumptions">
-        <span class="outcome-label">Assumes</span>
-        <ul class="assumption-list">
-          {% for a in o["assumptions"] %}
-          <li>{{ a }}</li>
-          {% endfor %}
-        </ul>
-      </div>
-      {% endif %}
-
-      {% if o["risks"] %}
-      <div class="outcome-risks">
-        <span class="outcome-label">What could break it</span>
-        <ul class="risk-list">
-          {% for r in o["risks"] %}
-          <li>{{ r }}</li>
+      {# One narrative section: watch-for / assumes / what-could-break-it all
+         restated the same ranked factors, so each factor now appears once. #}
+      {% if o["watches"] %}
+      <div class="outcome-watches">
+        <span class="outcome-label">What to watch, and what would undo this path</span>
+        <ul class="watch-list">
+          {% for w in o["watches"] %}
+          <li>{{ w }}</li>
           {% endfor %}
         </ul>
       </div>

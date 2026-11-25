@@ -83,6 +83,22 @@ def movers(fs, names: dict, limit: int = 5) -> list[tuple[str, float]]:
     return items[:limit]
 
 
+def watches_for(fs: dict, names: dict, limit: int = 4) -> list[str]:
+    """One watch-and-unwind line per moved factor, strongest first.
+
+    The four card sections this replaces (causal path, watch for, assumes,
+    what could break it) all restated the same ranked factor list in a
+    different verb register; a factor now appears once, with both what to
+    watch for and what would undo the path.
+    """
+    from app.narrate import delta_of, watch_line
+    ranked = sorted(((k, delta_of(v)) for k, v in (fs or {}).items()
+                     if isinstance(v, (int, float))),
+                    key=lambda kv: -abs(kv[1]))
+    return [watch_line(names.get(k, k), d) for k, d in ranked
+            if abs(d) >= 1.0][:limit]
+
+
 def prepare_outcomes(outs: list[dict], jid: str, db_path=None) -> list[dict]:
     """Convert raw outcome rows into template-ready dicts."""
     names = factor_names_for_scenario(jid, db_path)
@@ -101,6 +117,7 @@ def prepare_outcomes(outs: list[dict], jid: str, db_path=None) -> list[dict]:
             "summary": o.get("summary") or "",
             "explanation": o.get("explanation") or "",
             "movers": movers(fs, names),
+            "watches": watches_for(fs, names),
             "indicators": as_list(o.get("indicators")),
             "assumptions": as_list(o.get("assumptions")),
             "risks": as_list(o.get("risks")),

@@ -1,12 +1,14 @@
 {# Path story partial: numbered time-anchored steps with click-to-expand
-   cornerstone rationales (openspec: cornerstone rationale disclosure) #}
+   cornerstone rationales (openspec: cornerstone rationale disclosure).
+   hide_explanation is set when the card already shows the explanation as
+   its Arc, so the expanded story does not repeat it. #}
 <div class="story-head">
   <span class="badge badge-{{ o["band"]|lower }}">{{ o["band"] }}</span>
   <strong>{{ o["short_name"] or o["name"] }}</strong>
   <span class="prob">&middot; {{ o["share_pct"] }}% &middot; {{ o["members"] }} of {{ fv["timelines_explored"] }} timelines</span>
 </div>
 
-{% if o["explanation"] %}
+{% if o["explanation"] and not hide_explanation %}
 <div class="story-explanation">
   <p>{{ o["explanation"] }}</p>
 </div>
@@ -18,10 +20,10 @@
 <p class="muted">No stored trajectory for this path's representative timeline.</p>
 {% endif %}
 
-{% if o["indicators"] %}
+{% if o["watches"] %}
 <div class="early-signals">
-  <span class="early-label">Early signals to watch</span>
-  <ul>{% for i in o["indicators"] %}<li>{{ i }}</li>{% endfor %}</ul>
+  <span class="early-label">What to watch, and what would undo this path</span>
+  <ul>{% for i in o["watches"] %}<li>{{ i }}</li>{% endfor %}</ul>
 </div>
 {% endif %}
 

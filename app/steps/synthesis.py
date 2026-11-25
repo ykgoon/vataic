@@ -147,8 +147,6 @@ def cluster(particles: list[dict], n_outcomes: int = 7) -> list[list[dict]]:
                 if (labels == i).any(): C[i] = X[labels == i].mean(0)
     groups: dict[int, list[dict]] = {}
     for p, lb in zip(particles, labels): groups.setdefault(int(lb), []).append(p)
-    for i, o in enumerate(outcomes):
-        o["order"] = i + 1
     return list(groups.values())
 
 def _deterministic_enrich(o: dict, db_path=None, names: dict | None = None) -> dict:

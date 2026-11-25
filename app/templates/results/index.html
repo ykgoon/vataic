@@ -63,28 +63,21 @@
       {% if o["order"] %}<span class="order-badge">O{{ o["order"] }}</span>{% endif %}
       <h3>{{ o["short_name"] }}</h3>
       <div class="prob">{{ o["share_pct"] }}% &middot; {{ o["members"] }} of {{ fv["timelines_explored"] }} timelines</div>
-      {% set arc_text = o["explanation"] or o["summary"] %}
-      {% if arc_text|length > 240 %}
-      <details class="oc-story">
-        <summary>Arc</summary>
-        <p class="arc">{{ arc_text }}</p>
-        {% if o["llm_named"] and o["summary"] and o["explanation"] %}
-        <p class="muted">{{ o["summary"] }}</p>
-        {% endif %}
-      </details>
+      {# Arc is this card's narrative. A real LLM explanation is always the
+         narrative; without one, the stored summary is a machine restatement
+         of the same factor list the chips already show, so it is only used
+         when there are no chips to carry it. Whichever text is shown here is
+         not repeated again inside the expanded story. #}
+      {% if o["explanation"] and o["explanation"] != o["summary"] %}
+      {% set arc_text = o["explanation"] %}
+      {% elif not o["end_deltas"] %}
+      {% set arc_text = o["summary"] %}
       {% else %}
+      {% set arc_text = "" %}
+      {% endif %}
+      {% if arc_text %}
       <p class="arc">{{ arc_text }}</p>
-      {% if o["llm_named"] and o["summary"] and o["explanation"] %}
-      <p class="muted">{{ o["summary"] }}</p>
       {% endif %}
-      {% endif %}
-      <details class="oc-story" id="oc-story-{{ o["id"] }}">
-        <summary>Read the full story</summary>
-        <div class="oc-story-body"
-             hx-get="/results/{{ scenario['id'] }}/story?oid={{ o['id'] }}&expand=1"
-             hx-trigger="reveal once, click from:body"
-             hx-swap="innerHTML">Loading story&hellip;</div>
-      </details>
       {% if o["end_deltas"] %}
       <div class="chips">
         {% for d in o["end_deltas"][:4] %}
@@ -92,21 +85,16 @@
         {% endfor %}
       </div>
       {% endif %}
-      <details class="oc-details">
-        <summary>Watch for</summary>
-        <ul>{% for i in o["indicators"] %}<li>{{ i }}</li>{% endfor %}</ul>
-      </details>
-      <details class="oc-details">
-        <summary>Assumes</summary>
-        <ul>{% for a in o["assumptions"] %}<li>{{ a }}</li>{% endfor %}</ul>
-      </details>
-      <details class="oc-details">
-        <summary>What could break it</summary>
-        <ul>{% for r in o["risks"] %}<li>{{ r }}</li>{% endfor %}</ul>
-      </details>
-      <details class="oc-details">
-        <summary>Causal path</summary>
-        <ul>{% for c in o["causal_path"] %}<li>{{ c }}</li>{% endfor %}</ul>
+      {# One narrative section replaces the four overlapping lists (causal
+         path, watch for, assumes, what could break it): they restated the
+         same ranked factors in four verb registers. The Arc paragraph above
+         is this card's narrative, so the expanded story omits it. #}
+      <details class="oc-story" id="oc-story-{{ o["id"] }}">
+        <summary>Read the full story</summary>
+        <div class="oc-story-body"
+             hx-get="/results/{{ scenario['id'] }}/story?oid={{ o['id'] }}&expand=1{% if arc_text %}&hide_explanation=1{% endif %}"
+             hx-trigger="reveal once, click from:body"
+             hx-swap="innerHTML">Loading story&hellip;</div>
       </details>
     </div>
     {% endfor %}
