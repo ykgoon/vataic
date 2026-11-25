@@ -48,8 +48,6 @@ class Settings:
     artifact_dir: str = field(default_factory=lambda: _get("ARTIFACT_DIR", "./data/artifacts"))
     budget_max_steps: int = field(default_factory=lambda: _get_int("BUDGET_MAX_STEPS", 40))
     budget_max_branches: int = field(default_factory=lambda: _get_int("BUDGET_MAX_BRANCHES", 20))
-    budget_max_llm_calls: int = field(default_factory=lambda: _get_int("BUDGET_MAX_LLM_CALLS", 500))
-    budget_max_tokens: int = field(default_factory=lambda: _get_int("BUDGET_MAX_TOKENS", 500000))
     budget_max_runtime_s: int = field(default_factory=lambda: _get_int("BUDGET_MAX_RUNTIME_S", 28800))
     beam_width: int = field(default_factory=lambda: _get_int("BEAM_WIDTH", 12))
     beam_reserved_divergent: int = field(default_factory=lambda: _get_int("BEAM_RESERVED_DIVERGENT", 3))

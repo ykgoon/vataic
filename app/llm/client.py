@@ -177,12 +177,9 @@ class LLMClient:
                 text = (data["choices"][0]["message"] or {}).get("content") or ""
                 parsed = self._extract_json(text)
                 _record_success()
-                usage = data.get("usage") or {}
-                try:
-                    from app.llm.usage import record_llm_usage
-                    record_llm_usage(scenario_id, phase, usage, mdl, db_path=self.db_path)
-                except Exception:
-                    pass  # usage accounting must never break the engine
+                # No per-call usage tally: a run is not budgeted by provider
+                # calls or tokens. The row inserted below is kept as the
+                # response cache and as evidence of a real provider call.
                 V = VALIDATORS.get(phase)
                 if V:
                     try: parsed = V(**parsed).model_dump()

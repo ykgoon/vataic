@@ -10,8 +10,7 @@ from flask import Blueprint, request, render_template, redirect
 bp = Blueprint("settings_view", __name__)
 
 _NUM_KEYS = {
-    "budget.max_steps", "budget.max_llm_calls", "budget.max_tokens",
-    "budget.max_runtime_s", "budget.max_branches",
+    "budget.max_steps", "budget.max_runtime_s", "budget.max_branches",
     "beam.width", "beam.reserved_divergent",
     "merge.distance_threshold", "factors.max_macro", "factors.max_personal",
     "step.min_days", "step.max_days",
@@ -44,8 +43,6 @@ def _effective(db_rows: dict) -> dict:
         "llm.strong_model": settings.llm_strong_model or settings.llm_primary_model,
         "llm.cheap_model": settings.llm_cheap_model or settings.llm_primary_model,
         "budget.max_steps": settings.budget_max_steps,
-        "budget.max_llm_calls": settings.budget_max_llm_calls,
-        "budget.max_tokens": settings.budget_max_tokens,
         "budget.max_runtime_s": settings.budget_max_runtime_s,
         "budget.max_branches": settings.budget_max_branches,
         "beam.width": settings.beam_width,

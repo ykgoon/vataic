@@ -175,19 +175,21 @@ def idem_put(key: str, result: dict, db_path=None) -> None:
     _write_retry(_once)
 
 # ---- budget (3.6) ----
+# The projection loop is bounded by horizon (steps) and by how far the beam
+# widens (branches). LLM calls and tokens are deliberately NOT capped: the
+# operator asked for no provider-spend ceiling and no call counting, so a run
+# is never cut short mid-analysis because it consulted the model a lot.
 def default_budget() -> dict:
     from app.config import settings
-    return {"llm_calls": 0, "tokens": 0, "steps": 0, "branches": 0,
-            "caps": {"steps": settings.budget_max_steps, "llm_calls": settings.budget_max_llm_calls,
-                     "tokens": settings.budget_max_tokens, "runtime_s": settings.budget_max_runtime_s,
+    return {"steps": 0, "branches": 0,
+            "caps": {"steps": settings.budget_max_steps,
+                     "runtime_s": settings.budget_max_runtime_s,
                      "branches": settings.budget_max_branches},
             "started_at": now_iso()}
 
 def check_budget(b: dict) -> tuple[bool, str]:
     c = b.get("caps", {})
     if b.get("steps", 0) >= c.get("steps", 40): return False, "max_steps"
-    if b.get("llm_calls", 0) >= c.get("llm_calls", 500): return False, "max_llm_calls"
-    if b.get("tokens", 0) >= c.get("tokens", 500000): return False, "max_tokens"
     if b.get("branches", 0) >= c.get("branches", 20): return False, "max_branches"
     return True, ""
 

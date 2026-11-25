@@ -442,11 +442,12 @@ def test_activities_idempotent_and_resume():
     assert resumed["particles"]  # resumed from step 12, not step 0
     assert latest_checkpoint(jid2, db_path=None)["step_index"] > 12
 
-def test_llm_usage_recorded_and_reconciled():
-    """Real provider calls must land in budget_state (no false zeros)."""
+def test_llm_calls_not_budgeted():
+    """No LLM call/token ceiling: calls are never counted into the budget and
+    can never stop a run. The per-call ledger row still exists (it is the
+    response cache and the honest-completion evidence)."""
     from app.llm.client import LLMClient
-    from app.scenarios.repos import create_scenario, load_budget
-    from app.db import get_conn
+    from app.scenarios.repos import create_scenario, load_budget, check_budget
 
     class FakeResp:
         status_code = 200
@@ -467,13 +468,26 @@ def test_llm_usage_recorded_and_reconciled():
         assert not out["cache_hit"]
     finally:
         cl_mod.requests.post = orig
-    b = load_budget(jid, DB)
-    assert b["llm_calls"] == 1, f"expected 1 recorded call, got {b}"
-    assert b["tokens"] == 150 and b["prompt_tokens"] == 100
-    # Reconcile from llm_calls ledger agrees.
-    from app.llm.usage import reconcile_budget
-    b2 = reconcile_budget(jid, DB)
-    assert b2["llm_calls"] == 1 and b2["tokens"] == 150
+
+    # budget_state carries no spend tally and no spend caps.
+    from app.scenarios.repos import default_budget
+    b = load_budget(jid, DB) or default_budget()
+    for k in ("llm_calls", "tokens", "prompt_tokens", "completion_tokens"):
+        assert k not in b, f"{k} must not be tracked in budget_state: {b}"
+    assert "llm_calls" not in b["caps"] and "tokens" not in b["caps"]
+
+    # A budget stuffed with absurd "usage" must still be allowed to run.
+    huge = default_budget()
+    huge["llm_calls"] = 10_000_000
+    huge["tokens"] = 10 ** 12
+    ok, why = check_budget(huge)
+    assert ok and why == "", f"LLM spend must not stop a run, got {why}"
+
+    # The ledger still records the real call: it is the completion gate's
+    # evidence and the response cache.
+    from app.llm.usage import scenario_usage_summary
+    summ = scenario_usage_summary(jid, DB)
+    assert summ["real_calls"] == 1
 
 def test_outcomes_readable_names_and_summaries():
     """Outcomes must read like a report: human names, no raw factor ids,
@@ -515,7 +529,7 @@ def test_settings_page_shows_effective_values():
     assert r.status_code == 200
     body = r.get_data(as_text=True)
     assert "openai-compatible" in body          # provider value rendered
-    assert "500" in body                         # budget.max_llm_calls rendered
+    assert "Max LLM calls" not in body           # no LLM cap surfaced
     assert body.count("Not configured") <= 1     # at most the optional key row
     assert "not reachable" in body or "reachable" in body  # status probe shown
 

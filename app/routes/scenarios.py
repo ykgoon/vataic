@@ -54,12 +54,12 @@ def detail(jid):
         # scenario["id"] on an empty dict.
         return render_template("scenarios/gone.html"), 404
     from app.db import get_conn
-    from app.llm.usage import reconcile_budget, scenario_usage_summary
+    from app.llm.usage import reconcile_budget
     from app.present import prepare_outcomes, repair_legacy_outcomes
     j = get_scenario(jid) or {}
     cp = latest_checkpoint(jid) or {}
-    # Reconcile budget_state with the durable llm_calls ledger so usage is
-    # real even for scenarios that ran before usage capture existed.
+    # Drop any legacy spend tally from budget_state; only the loop bounds
+    # (steps, branches) are meaningful now.
     try:
         b = reconcile_budget(jid)
     except Exception:
@@ -78,19 +78,11 @@ def detail(jid):
         pass
     outcome_rows = prepare_outcomes(outs, jid)
 
-    # LLM call stats: budget_state is reconciled above; cross-check with the
-    # llm_calls table and take the larger of the two.
-    usage = scenario_usage_summary(jid)
-    llm_calls = max(b.get("llm_calls", 0) or 0, usage["real_calls"])
-    llm_tokens = max(b.get("tokens", 0) or 0, usage["tokens"])
-
-    # Budget usage percentages (from budget_state: used + caps)
+    # No provider-spend panel: runs are not budgeted by LLM calls or tokens,
+    # so neither is counted for display. Only the projection loop's own
+    # bounds (steps, branches) are shown.
     caps = b.get("caps", {})
-    llm_calls_used = llm_calls
-    tokens_used = llm_tokens
     steps_used = b.get("steps", 0) or j.get("current_step", 0) or 0
-    llm_calls_max = caps.get("llm_calls", b.get("llm_calls_max", 500)) or 500
-    tokens_max = caps.get("tokens", b.get("tokens_max", 500000)) or 500000
     steps_max = caps.get("steps", b.get("steps_max", 40)) or 40
     branches_used = b.get("branches", 0) or 0
     if not branches_used:
@@ -104,8 +96,6 @@ def detail(jid):
             branches_used = 0
     branches_max = caps.get("branches", b.get("branches_max", 20)) or 20
     budget_pct = {
-        "llm_calls": round(llm_calls_used / max(llm_calls_max, 1) * 100),
-        "tokens": round(tokens_used / max(tokens_max, 1) * 100),
         "steps": round(steps_used / max(steps_max, 1) * 100),
         "branches": round(branches_used / max(branches_max, 1) * 100),
     }
@@ -156,10 +146,8 @@ def detail(jid):
         chat=panel_context(jid),
         progress_pct=progress_pct, elapsed_text=elapsed_text,
         outcomes=outcome_rows,
-        llm_calls=llm_calls, llm_tokens=llm_tokens,
         steps_used=steps_used, steps_max=steps_max,
         branches_used=branches_used, branches_max=branches_max,
-        llm_calls_max=llm_calls_max, tokens_max=tokens_max,
         budget_pct=budget_pct, eta_text=eta_text)
 
 
