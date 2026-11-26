@@ -329,16 +329,18 @@ textarea {
 }
 
 .premise-cell {
-  max-width: 280px;
-  color: var(--muted);
+  max-width: 560px;
   word-break: break-word;
 }
-
-.error-cell {
-  color: var(--danger);
-  font-size: 12px;
-  max-width: 160px;
-  word-break: break-word;
+/* The premise is the row link, so it carries the link colour and no truncation:
+   the table is where a scenario is recognised, not a place to hide its text. */
+.premise-link {
+  color: var(--primary);
+  text-decoration: none;
+  font-weight: 500;
+}
+.premise-link:hover {
+  text-decoration: underline;
 }
 
 .empty-row {

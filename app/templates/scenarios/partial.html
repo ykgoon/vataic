@@ -1,7 +1,10 @@
 {% for j in scenarios %}
 <tr>
-  <td><a href="/scenarios/{{ j.id }}">{{ j.id[:8] }}</a></td>
-  <td class="premise-cell">{{ j.premise[:80] }}{% if j.premise|length > 80 %}...{% endif %}</td>
+  {# The premise is the row's identity: it links to the scenario page, which
+     carries the full error text and the retry/delete controls. #}
+  <td class="premise-cell">
+    <a href="/scenarios/{{ j.id }}" class="premise-link">{{ j.premise }}</a>
+  </td>
   <td><span class="status-badge status-{{ j.status|lower }}" id="status-{{ j.id }}">{{ j.status }}</span></td>
   <td class="step-cell">
     {% if j.current_step or j.current_phase %}
@@ -16,18 +19,8 @@
     {% endif %}
   </td>
   <td>{{ j.updated_at[:16] if j.updated_at else "—" }}</td>
-  <td class="error-cell">{% if j.status == 'FAILED' and j.error %}{{ j.error[:60] }}{% else %}—{% endif %}</td>
-  <td>
-    {% if j.status == 'FAILED' %}
-    <button hx-post="/scenarios/{{ j.id }}/retry" hx-target="#status-{{ j.id }}" hx-swap="innerHTML" class="btn btn-sm btn-secondary">Retry</button>
-    {% endif %}
-    {# Delete is available in every state: the route auto-cancels active
-       scenarios before removing data, so stranded runs (e.g. worker died
-       mid-run) are removable without waiting for a recovery scan. #}
-    <button hx-post="/scenarios/{{ j.id }}/delete" hx-target="#scenarios-tbody" hx-swap="innerHTML" hx-confirm="Delete this scenario and all its data?" class="btn btn-sm btn-danger">Delete</button>
-  </td>
 </tr>
 {% endfor %}
 {% if scenarios|length == 0 %}
-<tr><td colspan="7" class="empty-row">No scenarios yet. <a href="/scenarios/new">Create one</a>.</td></tr>
+<tr><td colspan="4" class="empty-row">No scenarios yet. <a href="/scenarios/new">Create one</a>.</td></tr>
 {% endif %}

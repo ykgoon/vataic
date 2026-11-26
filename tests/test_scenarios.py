@@ -179,7 +179,9 @@ def test_retry_clears_previous_error_from_db_and_ui():
 
     body = cl.get(f"/scenarios/{jid}").get_data(as_text=True)
     assert "pipeline error: provider exploded" in body
-    assert "provider exploded" in cl.get("/scenarios/partial").get_data(as_text=True)
+    # The dashboard table no longer carries an error column: the message lives
+    # on the scenario page, which is where the row's premise links.
+    assert "provider exploded" not in cl.get("/scenarios/partial").get_data(as_text=True)
 
     # Retry (as the UI button does) => FAILED -> QUEUED and the message is gone
     # before the new run has produced anything.
@@ -830,15 +832,60 @@ def test_cancel_badge_shows_new_state():
     assert get_scenario(jid, DB)["status"] == "CANCELLED"
 
 
-def test_dashboard_delete_button_always_present():
-    """Stranded non-terminal scenarios must be deletable from the UI."""
+def test_dashboard_table_shape():
+    """The dashboard row is premise-linked with no ID, error, or action column.
+
+    Identity is the premise (it links to the scenario page); the error text and
+    the retry/delete controls live on that page instead of in the table.
+    """
     from app import create_app
-    from app.scenarios.repos import create_scenario
+    from app.scenarios.repos import create_scenario, transition
+    from app.db import get_conn
     app = create_app({"TESTING": True})
     cl = app.test_client()
+    jid = create_scenario("Will the robot economy offset a human consumption crash?",
+                          db_path=DB)
+    transition(jid, "INITIALIZING", db_path=DB)
+    transition(jid, "RUNNING", db_path=DB)
+    with get_conn(DB) as c:
+        c.execute("UPDATE projection_scenarios SET status='FAILED', error=? WHERE id=?",
+                  ("pipeline error: provider exploded", jid))
+
+    page = cl.get("/scenarios").get_data(as_text=True)
+    head = page.split("<thead>", 1)[1].split("</thead>", 1)[0]
+    for gone in ("ID", "Error"):
+        assert f"<th>{gone}</th>" not in head
+    assert "<th>Premise</th>" in head
+
+    row = cl.get("/scenarios/partial").get_data(as_text=True)
+    # Premise is the link, not an id. The full id survives only as the htmx
+    # target attribute the poll needs; it is never rendered as a cell.
+    assert f'href="/scenarios/{jid}"' in row
+    assert f">{jid[:8]}<" not in row
+    # No error text and no per-row action buttons in the table.
+    assert "provider exploded" not in row
+    assert f"/scenarios/{jid}/delete" not in row
+    assert f"/scenarios/{jid}/retry" not in row
+    # The scenario page does carry both.
+    detail = cl.get(f"/scenarios/{jid}").get_data(as_text=True)
+    assert "provider exploded" in detail
+    assert f"/scenarios/{jid}/retry" in detail
+
+
+def test_delete_control_lives_on_scenario_page():
+    """Deletion moved off the dashboard: the scenario page owns the control and
+    offers it in every state, so stranded runs are still deletable."""
+    from app import create_app
+    from app.scenarios.repos import create_scenario, transition
+    app = create_app({"TESTING": True})
+    cl = app.test_client()
+
+    # Queued (stranded, never picked up by a worker) — still deletable.
     jid = create_scenario("ui delete", db_path=DB)
-    r = cl.get("/scenarios/partial")
-    assert f"/scenarios/{jid}/delete".encode() in r.get_data()
+    detail = cl.get(f"/scenarios/{jid}").get_data(as_text=True)
+    assert f"/scenarios/{jid}/delete" in detail
+    # ...and the dashboard row itself carries no delete control.
+    assert f"/scenarios/{jid}/delete" not in cl.get("/scenarios/partial").get_data(as_text=True)
 
 
 def test_seed_default_primary_model_blank():
