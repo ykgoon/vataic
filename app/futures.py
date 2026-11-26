@@ -16,7 +16,7 @@ from app.narrate import (delta_of, end_state, level_word, movement,
 ARTIFACT_KIND = "futures_view"
 # v4: each outcome carries one `watches` list (early signal + what would undo
 # the path, per factor) instead of four overlapping lists.
-ARTIFACT_VERSION = 4
+ARTIFACT_VERSION = 5
 
 _JUNK_SUMMARY_RE = re.compile(r"^\d+ particles?$")
 _JUNK_TIME_RE = re.compile(r"^step-?\d+$", re.IGNORECASE)
@@ -465,6 +465,54 @@ def derive_story(oid: str, rep_pid: str, states: dict, steps: list[dict],
 
 # ---------------------------------------------------------------- build/save
 
+_ORDER_WORDS = {1: "first-order", 2: "second-order", 3: "third-order"}
+_ORDER_BLURB = {
+    1: "a direct consequence of the decision",
+    2: "a knock-on effect of that first consequence",
+    3: "a further knock-on, two steps downstream",
+}
+
+
+def _load_map(value) -> dict | None:
+    """Parse a stored JSON object, or None when absent/unreadable.
+
+    _j() is for list columns and coerces everything to a list of lines, so it
+    cannot be used for a mapping payload like hop_mass.
+    """
+    if isinstance(value, dict):
+        return value or None
+    if not value:
+        return None
+    try:
+        v = json.loads(value)
+    except Exception:
+        return None
+    return v if isinstance(v, dict) and v else None
+
+
+def _order_label(o: dict, hop_mass) -> dict | None:
+    """Plain-English order of effect, or None when it was never measured.
+
+    The number comes from the hops a timeline actually took (app.steps.
+    causality). Runs made before the causal loop have no hop record, and for
+    those this returns None rather than presenting the schema default of 1 as a
+    finding.
+    """
+    if not isinstance(hop_mass, dict) or not hop_mass:
+        return None
+    try:
+        order = int(o.get("order") or 0)
+    except (TypeError, ValueError):
+        return None
+    if order not in _ORDER_WORDS:
+        return None
+    # A stored order of 1 on an old row is indistinguishable from unmeasured,
+    # so the recorded distribution is what confirms it was actually derived.
+    return {"n": order, "word": _ORDER_WORDS[order],
+            "blurb": _ORDER_BLURB[order],
+            "mass": hop_mass}
+
+
 def build_futures_view(jid: str, db_path=None) -> dict | None:
     from app.present import factor_names_for_scenario
     scenario, outcomes, members, particles, states, steps, llm_calls = _load_scenario_data(jid, db_path)
@@ -517,6 +565,10 @@ def build_futures_view(jid: str, db_path=None) -> dict | None:
             "assumptions": _j(o.get("assumptions")),
             "risks": _j(o.get("risks")),
             "causal_path": _j(o.get("causal_path")),
+            # How directly this future follows from the decision, measured from
+            # the causal hops its timelines took. Null when the run predates the
+            # causal loop: an unmeasured order must not be shown as a measured one.
+            "order": _order_label(o, _load_map(o.get("hop_mass"))),
             "end_deltas": [{"id": k, "name": names.get(k, k), "delta": v,
                             "phrase": level_word(v)}
                            for k, v in sorted(_end_deltas(series, base_of).items(),

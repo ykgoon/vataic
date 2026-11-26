@@ -64,17 +64,29 @@ def stopping_reason(step: int, budget: dict, clusters_stable: bool = False,
 
 def run_step(scenario_id: str, step: int, particles: list[dict], developments_fn=None,
              reality_mode="grounded", budget: dict | None = None, db_path=None,
-             llm_mode: bool = False, step_events: dict | None = None) -> dict:
+             llm_mode: bool = False, step_events: dict | None = None,
+             causal_edges: list[dict] | None = None) -> dict:
     """One projection step across particles with checkpoint write.
 
     llm_mode marks that developments came from the LLM proposer (vs the
     heuristic fallback). step_events maps particle id -> {summary, events}
     returned by the proposer; they are persisted on particle_states and folded
     into the shared step summary so stories can cite real recorded events.
+
+    causal_edges is the scenario's causal graph. When supplied, a development's
+    direct deltas are propagated along it (app.steps.causality), so factors move
+    because a driver moved rather than because a hash picked them. The hop each
+    factor took is recorded per particle, so an outcome's order of effect is
+    measured instead of assumed.
     """
     from app.scenarios.repos import idem_key, idem_get, idem_put, save_checkpoint
     budget = budget or {}
     new_particles: list[dict] = []
+    # particle id -> {factor: hop}; 0 = named by the development, >=1 = induced
+    # downstream along the causal graph.
+    particle_hops: dict[str, dict[str, int]] = {}
+    # particle id -> {hop: total absolute movement}, accumulated over the run.
+    particle_mass: dict[str, dict[str, float]] = {}
     for p in particles:
         key = idem_key(scenario_id, "step", step, p.get("id", ""), str(sorted(p.get("factor_state", {}).keys())))
         cached = idem_get(key, db_path)
@@ -88,16 +100,41 @@ def run_step(scenario_id: str, step: int, particles: list[dict], developments_fn
             mode = should_branch(d)
             if mode is None: continue
             delta = d.get("delta", {})
-            fs = dict(p.get("factor_state", {}))
-            for k, v in delta.items():
-                fs[k] = max(0.0, min(100.0, fs.get(k, 50) + v))
-            if mode == "drift":
-                made.append({"id": p.get("id", uuid.uuid4().hex[:8]),
-                             "factor_state": fs, "probability": p.get("probability", 1.0)})
+            hops, mass = {}, {}
+            if causal_edges:
+                from app.steps.causality import apply_cascade, hop_mass, split_seed
+                seed = split_seed(set(p.get("factor_state", {})), delta)
+                fs, hops, induced = apply_cascade(
+                    p.get("factor_state", {}), seed, causal_edges)
+                mass = hop_mass(seed, induced)
             else:
-                made.append({"id": uuid.uuid4().hex[:8], "parent": p.get("id"),
+                # No graph: the development is the whole effect.
+                fs = dict(p.get("factor_state", {}))
+                for k, v in delta.items():
+                    fs[k] = max(0.0, min(100.0, fs.get(k, 50) + v))
+            if mode == "drift":
+                pid = p.get("id", uuid.uuid4().hex[:8])
+                made.append({"id": pid, "factor_state": fs,
+                             "probability": p.get("probability", 1.0)})
+            else:
+                pid = uuid.uuid4().hex[:8]
+                made.append({"id": pid, "parent": p.get("id"),
                              "factor_state": fs,
                              "probability": p.get("probability", 1.0) * d.get("probability", 0.5)})
+            # Attribute the hops to the particle that actually carries this state.
+            # Keying them to the parent dropped the record for every branch
+            # child (which gets a fresh id), so those timelines reported no
+            # order at all. Merge rather than overwrite: a particle can receive
+            # several developments in one step and the shallowest attribution of
+            # each factor is the one worth keeping.
+            if hops:
+                acc_hops = particle_hops.setdefault(pid, {})
+                for k, v in hops.items():
+                    acc_hops[k] = min(v, acc_hops.get(k, v))
+            if mass:
+                acc_mass = particle_mass.setdefault(pid, {})
+                for k, v in mass.items():
+                    acc_mass[k] = round(acc_mass.get(k, 0.0) + v, 3)
         if not made:
             made = [p]
         idem_put(key, {"particles": made}, db_path)
@@ -122,9 +159,13 @@ def run_step(scenario_id: str, step: int, particles: list[dict], developments_fn
                   factor_state,created_step) VALUES(?,?,?,?,?,?)""",
                   (pt.get("id", uuid.uuid4().hex[:8]), scenario_id, pt.get("parent"),
                    pt.get("probability", 0), json.dumps(pt.get("factor_state", {})), step))
-                c.execute("""INSERT OR REPLACE INTO particle_states(particle_id,step_index,factor_values,events)
-                  VALUES(?,?,?,?)""", (pt.get("id"), step, json.dumps(pt.get("factor_state", {})),
-                                        json.dumps(ev.get("events", []))))
+                c.execute("""INSERT OR REPLACE INTO particle_states(particle_id,step_index,
+                  factor_values,events,causal_hops,causal_source) VALUES(?,?,?,?,?,?)""",
+                  (pt.get("id"), step, json.dumps(pt.get("factor_state", {})),
+                   json.dumps(ev.get("events", [])),
+                   json.dumps({"hops": particle_hops.get(pt.get("id", ""), {}),
+                               "mass": particle_mass.get(pt.get("id", ""), {})}),
+                   "graph" if causal_edges else "none"))
             # Shared step narrative: recorded events/summaries when the LLM
             # proposer ran; a neutral step marker otherwise (junk-filtered later).
             if rec_summaries or rec_events:

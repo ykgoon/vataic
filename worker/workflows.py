@@ -65,7 +65,10 @@ def act_causal(inp: dict) -> dict:
         factors = json.loads(r["factors"]) if r else []
     premise = (inp.get("premise") or (get_scenario_row(inp["scenario_id"]) or {}).get("premise", ""))
     # LLM-proposed edges first; deterministic chain only as heuristic fallback.
-    proposed = llm_causal_edges(inp["scenario_id"], premise, factors) or []
+    # `proposed` must stay None when the LLM is unavailable: build_causal_graph
+    # falls back to _default_edges() only on None, and an empty list is not None,
+    # so `or []` here silently produced a graph with no edges at all.
+    proposed = llm_causal_edges(inp["scenario_id"], premise, factors)
     g = critic_revise(build_causal_graph(inp["scenario_id"], factors, proposed))
     g["edge_source"] = "llm" if proposed else "default"
     return _put(key, g)
@@ -168,12 +171,17 @@ def _llm_developments(scenario_id: str, premise: str, causal: dict, particle: di
 
 
 def _deterministic_developments(particle: dict, factor_ids: list[str],
-                                step: int, step_index: int) -> list[dict]:
+                                step: int, step_index: int,
+                                causal_edges: list[dict] | None = None) -> list[dict]:
     """Deterministic fallback per-particle developments that evolve factor state.
 
-    Used only when the LLM provider is unavailable (heuristic mode). Uses a hash
-    of (particle id, step) to pick which factors drift and by how much, so each
-    particle takes a distinct, reproducible path.
+    Used only when the LLM provider is unavailable (heuristic mode). The step's
+    *timing* is still a hash of (particle id, step) so each particle takes a
+    distinct, reproducible path, but *which* factors can move is now constrained
+    by the causal graph: a development names one factor, and the graph decides
+    what that push reaches downstream (app.steps.causality). Before this the
+    generator picked factors at random, so no factor ever moved because another
+    had moved and the engine could not produce a downstream effect at all.
     """
     import hashlib
     import math
@@ -184,6 +192,13 @@ def _deterministic_developments(particle: dict, factor_ids: list[str],
     # to the particle's own factor keys so state still evolves.
     if not factor_ids:
         factor_ids = list(fs.keys()) or ["generic"]
+    # Which factors are legitimate starting points for a change: the upstream
+    # ones. A factor with a driver is reached *through* that driver instead.
+    if causal_edges:
+        has_driver = {e["target"] for e in causal_edges if e.get("target")}
+        upstream = [f for f in factor_ids if f not in has_driver]
+        if upstream:
+            factor_ids = upstream
     n_factors = max(1, len(factor_ids))
     # Number of factor perturbations per step scales with step (more variance later).
     k = min(3, 1 + (step_index % 3))
@@ -281,11 +296,18 @@ def act_loop_step(inp: dict) -> dict:
             tps = [row[0] for row in c.execute(
                 "SELECT turning_points FROM projection_steps WHERE scenario_id=?", (jid,))]
             tps = [t for t in tps if t and t != "[]"]
+    # The causal graph is the point of the projection: load the stored edges and
+    # hand them to both the proposer (so the model reasons about cascades) and
+    # run_step (so deltas actually travel along them). Without this the graph was
+    # computed and thrown away, every factor moved only when a hash named it, and
+    # nothing was ever second-order.
+    from app.steps.causality import load_edges
+    causal = {"edges": load_edges(jid)}
     # Probe the LLM once per step with the first particle; if the provider is
     # down, fall back to deterministic mode for the whole step (heuristic mode).
     llm_ok = False
     if fmeta:
-        probe = _llm_developments(jid, premise, {}, particles[0], fids, fmeta,
+        probe = _llm_developments(jid, premise, causal, particles[0], fids, fmeta,
                                   step_index, epoch_summary, tps)
         llm_ok = probe is not None
     step_events: dict[str, dict] = {}  # particle id -> {summary, events}
@@ -293,7 +315,7 @@ def act_loop_step(inp: dict) -> dict:
 
     def developments_fn(p: dict) -> list[dict]:
         if llm_ok:
-            devs = _llm_developments(jid, premise, {}, p, fids, fmeta,
+            devs = _llm_developments(jid, premise, causal, p, fids, fmeta,
                                      step_index, epoch_summary, tps)
             if devs:
                 texts = [d.get("summary") for d in devs if d.get("summary")]
@@ -310,9 +332,11 @@ def act_loop_step(inp: dict) -> dict:
                         except Exception:
                             pass
                 return devs
-        return _deterministic_developments(p, fids, step_index, step_index)
+        return _deterministic_developments(p, fids, step_index, step_index,
+                                            causal_edges=causal["edges"])
     out = run_step(jid, step_index, particles, developments_fn=developments_fn,
-                   budget=budget, llm_mode=llm_ok, step_events=step_events)
+                   budget=budget, llm_mode=llm_ok, step_events=step_events,
+                   causal_edges=causal["edges"])
     if llm_steps:
         from app.steps.engine import adaptive_step
         out["next_step_days"] = adaptive_step(0.5, sum(llm_steps) // len(llm_steps))

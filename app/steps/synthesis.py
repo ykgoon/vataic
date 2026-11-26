@@ -5,6 +5,7 @@ import numpy as np
 from app.db import get_conn
 from app.narrate import (arc, delta_of, end_state, level_word, movement,
                          onset, reversal, sanitize_prose, stays)
+from app.steps.causality import MAX_ORDER
 
 BANDS = [(0.4, "dominant"), (0.2, "plausible"), (0.08, "alternative"), (0.0, "tail")]
 DISCLAIMER = "These are structured scenario explorations, not predictions."
@@ -153,6 +154,112 @@ def cluster(particles: list[dict], n_outcomes: int = 7) -> list[list[dict]]:
     for p, lb in zip(particles, labels): groups.setdefault(int(lb), []).append(p)
     return list(groups.values())
 
+def _t0_state(scenario_id: str, db_path=None) -> dict:
+    """The scenario's starting factor values (world state at step 0)."""
+    from app.db import get_conn
+    with get_conn(db_path) as c:
+        r = c.execute("SELECT factor_values FROM world_states WHERE scenario_id=? "
+                      "ORDER BY step_index LIMIT 1", (scenario_id,)).fetchone()
+    if not r or not r["factor_values"]:
+        return {}
+    try:
+        return json.loads(r["factor_values"]) or {}
+    except Exception:
+        return {}
+
+
+def _measured_order(scenario_id: str, member_ids: list[str],
+                    factor_states: dict | None = None, db_path=None) -> dict:
+    """Order of effect, measured from how each outcome's movement was produced.
+
+    `outcomes."order"` (migrations/008) says how directly a future follows from
+    the decision: 1st order is a direct consequence, 2nd follows from that, 3rd
+    is further downstream. It was never computed, so every row stored the
+    default of 1 and the UI grew an "O1" badge that was identical on every card.
+
+    The projection records, per state, which factors a development named
+    (hop 0) and which were only reached along the causal graph (hop 1..3). The
+    order of an outcome is read off the movement the *reader* can see: each
+    factor's net end movement is attributed to the hop that first reached it, and
+    the order is the shallowest hop carrying most of that movement.
+
+    Attributing net end movement rather than summing per-step cascade events
+    matters: one development fans out to several targets, so counting events
+    would make every outcome look downstream purely because of fan-out.
+
+    Returns {"order": int, "hops": {factor: hop}, "mass": {hop: movement},
+             "source": "measured"|"none"}.
+
+    Outcomes written before the causal loop existed carry no hop record. Those
+    report source "none" and order 1: an unmeasured order must never be shown as
+    a measured one.
+    """
+    from app.db import get_conn
+    factor_states = factor_states or {}
+    if not member_ids or not factor_states:
+        return {"order": 1, "hops": {}, "mass": {}, "source": "none"}
+    marks = ",".join("?" for _ in member_ids)
+    with get_conn(db_path) as c:
+        rows = list(c.execute(
+            f"""SELECT causal_hops FROM particle_states
+                WHERE particle_id IN ({marks})
+                  AND causal_hops NOT IN ('', '{{}}')""", tuple(member_ids)))
+    hops: dict[str, int] = {}
+    for r in rows:
+        try:
+            payload = json.loads(r["causal_hops"]) or {}
+        except Exception:
+            continue
+        for fid, hop in (payload.get("hops") or {}).items():
+            try:
+                hop = int(hop)
+            except (TypeError, ValueError):
+                continue
+            hops[fid] = min(hop, hops.get(fid, hop))
+    if not hops:
+        return {"order": 1, "hops": {}, "mass": {}, "source": "none"}
+    t0 = _t0_state(scenario_id, db_path)
+    mass: dict[str, float] = {}
+    for fid, end in factor_states.items():
+        if fid not in hops:
+            continue
+        try:
+            start = float(t0.get(fid, 50.0))
+            moved = abs(float(end) - start)
+        except (TypeError, ValueError):
+            continue
+        if moved < 1.0:
+            continue
+        k = str(hops[fid])
+        mass[k] = round(mass.get(k, 0.0) + moved, 3)
+    # Net end movement carried by each factor can look flat when a factor
+    # travelled out and back. Fall back to the movement actually recorded during
+    # the run so a genuinely downstream outcome still reads as one.
+    if sum(mass.values()) < 1.0:
+        for r in rows:
+            try:
+                payload = json.loads(r["causal_hops"]) or {}
+            except Exception:
+                continue
+            for k, v in (payload.get("mass") or {}).items():
+                try:
+                    mass[k] = round(mass.get(k, 0.0) + float(v), 3)
+                except (TypeError, ValueError):
+                    continue
+    total = sum(mass.values())
+    if total <= 0:
+        # Factors were reached but nothing moved far enough to call it a shift.
+        # That is not a measured order, so do not claim one.
+        return {"order": 1, "hops": hops, "mass": {}, "source": "none"}
+    # The order is where most of the movement came from: the hop carrying the
+    # largest share. A majority threshold would effectively never reach 3rd
+    # order, because strength decays at every hop, so a downstream outcome could
+    # never out-weigh the direct push that caused it.
+    top_hop = max(mass, key=lambda k: mass[k])
+    order = min(int(top_hop) + 1, MAX_ORDER)
+    return {"order": order, "hops": hops, "mass": mass, "source": "measured"}
+
+
 def _deterministic_enrich(o: dict, db_path=None, names: dict | None = None) -> dict:
     """Populate causal_path, indicators, assumptions, risks deterministically
     from the representative particle's factor state and the scenario's causal graph.
@@ -245,7 +352,13 @@ def synthesize(scenario_id: str, particles: list[dict], n_outcomes: int = 7,
         oid = uuid.uuid4().hex[:12]
         fs = rep.get("factor_state", {})
         lbl = (llm_labels or {}).get(i, {})
+        member_ids = [p.get("id") for p in g if p.get("id")]
+        measured = _measured_order(scenario_id, member_ids,
+                                   rep.get("factor_state", {}), db_path)
         o = {"id": oid, "probability": w, "band": band_for(w),
+             "order": measured["order"],
+             "causal_hops": measured["hops"],
+             "hop_mass": measured["mass"],
              "summary": (lbl.get("summary") or
                          _summarize(premise, rep, g, names)),
              "llm_named": bool(lbl.get("name")),
@@ -288,12 +401,15 @@ def synthesize(scenario_id: str, particles: list[dict], n_outcomes: int = 7,
         for o in outcomes:
             c.execute("""INSERT OR REPLACE INTO outcomes(id,scenario_id,name,probability,band,summary,
               factor_states,causal_path,indicators,assumptions,risks,explanation,
-              representative_particle,enrichment) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+              representative_particle,enrichment,"order",causal_hops,hop_mass)
+              VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
               (o["id"], scenario_id, o["name"], o["probability"], o["band"], o["summary"],
                json.dumps(o["factor_states"]), json.dumps(o["causal_path"]),
                json.dumps(o["indicators"]), json.dumps(o["assumptions"]),
                json.dumps(o["risks"]), o["explanation"], o["representative"],
-               json.dumps(o.get("enrichment", {}))))
+               json.dumps(o.get("enrichment", {})), o.get("order", 1),
+               json.dumps(o.get("causal_hops", {})),
+               json.dumps(o.get("hop_mass", {}))))
             for pid in [o["representative"]] + o["alternatives"]:
                 if pid: c.execute("""INSERT OR IGNORE INTO outcome_particle_memberships
                   (outcome_id,particle_id,weight) VALUES(?,?,?)""", (o["id"], pid, o["probability"]))

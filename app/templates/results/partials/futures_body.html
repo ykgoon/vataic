@@ -53,6 +53,9 @@
     {% if arc_text %}
     <div class="arc">{% for para in arc_text|paragraphs %}<p>{{ para }}</p>{% endfor %}</div>
     {% endif %}
+    {% if o["order"] and o["order"]["word"] %}
+    <p class="oc-order">{{ o["order"]["word"]|capitalize }} &mdash; {{ o["order"]["blurb"] }}.</p>
+    {% endif %}
     {% if o["end_deltas"] %}
     <div class="chips">
       {% for d in o["end_deltas"][:4] %}
