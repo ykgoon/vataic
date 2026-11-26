@@ -75,11 +75,10 @@ def test_futures_view_renders_all_sections():
     jid = _seed_completed_scenario("personal")
     app = create_app({"TESTING": True})
     cl = app.test_client()
-    r = cl.get(f"/results/{jid}")
+    r = cl.get(f"/scenarios/{jid}")
     assert r.status_code == 200
     body = r.get_data(as_text=True)
-    # overview strip
-    assert "Futures overview" in body
+    # futures sections now render inside the scenario page
     assert "2 timelines explored" in body
     assert "heuristic mode" in body          # zero llm_calls
     assert "horizon:" in body
@@ -94,6 +93,8 @@ def test_futures_view_renders_all_sections():
     # futures map + story panel
     assert "fmap-svg" in body
     assert "story-panel" in body
+    # the premise appears once, in the scenario header
+    assert body.count("quitting my scenario to go independent") == 1
     # outcome cards with collapsed details
     assert "Grind through" in body and "Stall out" in body
     assert "<details" in body
@@ -113,7 +114,7 @@ def test_outcome_cards_consolidate_redundant_sections():
     jid = _seed_completed_scenario("personal")
     app = create_app({"TESTING": True})
     cl = app.test_client()
-    body = cl.get(f"/results/{jid}").get_data(as_text=True)
+    body = cl.get(f"/scenarios/{jid}").get_data(as_text=True)
     for retired in (">Watch for<", ">Assumes<", ">What could break it<",
                     ">Causal path<"):
         assert retired not in body, retired
@@ -136,7 +137,7 @@ def test_retired_debug_pages_are_gone():
     app = create_app({"TESTING": True})
     cl = app.test_client()
 
-    for path in (f"/results/{jid}", f"/results/{jid}/fan?factor=f1",
+    for path in (f"/results/{jid}/fan?factor=f1",
                  f"/results/{jid}/story?oid=oA", f"/scenarios/{jid}"):
         body = cl.get(path).get_data(as_text=True)
         assert f"/results/{jid}/tree" not in body, path
@@ -155,7 +156,7 @@ def test_macro_scope_phrasing():
     jid = _seed_completed_scenario("macro")
     app = create_app({"TESTING": True})
     cl = app.test_client()
-    body = cl.get(f"/results/{jid}").get_data(as_text=True)
+    body = cl.get(f"/scenarios/{jid}").get_data(as_text=True)
     assert "takes the key factors" in body
     assert "takes your factors" not in body
 
@@ -188,7 +189,7 @@ def test_rationale_missing_branch_is_graceful():
     assert "no fork recorded" in r.get_data(as_text=True)
 
 
-def test_legacy_fallback_for_incomplete_job():
+def test_incomplete_job_shows_stored_outcomes_not_futures():
     from app import create_app
     from app.db import get_conn
     jid = _seed_completed_scenario("personal")
@@ -196,10 +197,10 @@ def test_legacy_fallback_for_incomplete_job():
         c.execute("UPDATE projection_scenarios SET status='RUNNING' WHERE id=?", (jid,))
     app = create_app({"TESTING": True})
     cl = app.test_client()
-    r = cl.get(f"/results/{jid}")
+    r = cl.get(f"/scenarios/{jid}")
     assert r.status_code == 200
     body = r.get_data(as_text=True)
-    # legacy card page, not the futures view
+    # stored-outcome grid, not the futures sections
     assert "outcome-card" in body
     assert "fmap-svg" not in body
 
@@ -220,11 +221,100 @@ def test_new_futures_view_renders_all_sections():
         c.execute("UPDATE projection_scenarios SET status='COMPLETED' WHERE id=?", (jid,))
     app = create_app({"TESTING": True})
     cl = app.test_client()
-    r = cl.get(f"/results/{jid}")
+    r = cl.get(f"/scenarios/{jid}")
     assert r.status_code == 200
     body = r.get_data(as_text=True)
-    assert "Futures overview" in body
     assert "2 timelines explored" in body
     assert "fmap-svg" in body
     # outcome names present in split, map labels, and cards
     assert "Outcome 1" in body
+
+
+def test_results_url_redirects_to_the_scenario_page():
+    """Old bookmarks and external links must not break when the two pages merge."""
+    from app import create_app
+    jid = _seed_completed_scenario("personal")
+    app = create_app({"TESTING": True})
+    cl = app.test_client()
+    r = cl.get(f"/results/{jid}")
+    assert r.status_code == 302
+    assert r.headers["Location"].endswith(f"/scenarios/{jid}")
+
+    # Following it lands on the page that now carries the result.
+    body = cl.get(f"/scenarios/{jid}").get_data(as_text=True)
+    assert "2 timelines explored" in body
+    assert "fmap-svg" in body
+
+
+def test_scenario_page_carries_both_halves():
+    """One page, both halves: the job's telemetry and the result's reading.
+
+    The merge only succeeds if nothing was dropped: a completed scenario must
+    show its progress/loop-bounds telemetry *and* the futures sections, and must
+    not repeat the outcome list in two different card styles.
+    """
+    from app import create_app
+    jid = _seed_completed_scenario("personal")
+    app = create_app({"TESTING": True})
+    cl = app.test_client()
+    body = cl.get(f"/scenarios/{jid}").get_data(as_text=True)
+
+    # Result half
+    for marker in ("How the futures split", "fan-svg", "fmap-svg",
+                   "story-panel", "cards-row"):
+        assert marker in body, marker
+    # Telemetry half
+    for marker in ("Progress", "Loop Bounds", "Elapsed:", "status-badge"):
+        assert marker in body, marker
+    # Premise shown once
+    assert body.count("quitting my scenario to go independent") == 1
+    # No duplicated outcome listing: the detail page's own outcome grid is
+    # suppressed when the futures cards already cover every field it showed.
+    assert 'class="outcomes-grid"' not in body
+    # No button to a page that is now the same page.
+    assert "View Results" not in body
+
+
+def test_failed_scenario_shows_error_and_no_futures():
+    """A failed run must still show why it failed, on the same single page."""
+    from app import create_app
+    from app.db import get_conn
+    jid = _seed_completed_scenario("personal")
+    with get_conn(DB) as c:
+        c.execute("UPDATE projection_scenarios SET status='FAILED', error=? WHERE id=?",
+                  ("provider refused the request", jid))
+    app = create_app({"TESTING": True})
+    cl = app.test_client()
+    body = cl.get(f"/scenarios/{jid}").get_data(as_text=True)
+    assert "provider refused the request" in body
+    assert "scenario-error" in body
+    # no futures sections for a run that never produced one
+    assert "fmap-svg" not in body
+    assert "How the futures split" not in body
+
+
+def test_decision_context_survives_the_merge():
+    """decision_context was on both old pages; it must appear exactly once."""
+    from app import create_app
+    from app.db import get_conn
+    jid = _seed_completed_scenario("personal")
+    with get_conn(DB) as c:
+        c.execute("UPDATE projection_scenarios SET decision_context=? WHERE id=?",
+                  ("Choosing whether to leave a stable role.", jid))
+    app = create_app({"TESTING": True})
+    cl = app.test_client()
+    body = cl.get(f"/scenarios/{jid}").get_data(as_text=True)
+    assert body.count("Choosing whether to leave a stable role.") == 1
+    assert "scenario-decision-context" in body
+
+
+def test_engine_summary_reaches_the_reader():
+    """The stored summary is shown nowhere else, so it must survive in the
+    collapsed path story for every outcome."""
+    from app import create_app
+    jid = _seed_completed_scenario("personal")
+    app = create_app({"TESTING": True})
+    cl = app.test_client()
+    for oid in ("oA", "oB"):
+        body = cl.get(f"/results/{jid}/story?oid={oid}&expand=1").get_data(as_text=True)
+        assert "story-summary" in body, oid

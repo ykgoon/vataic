@@ -14,6 +14,17 @@
 </div>
 {% endif %}
 
+{% if o["summary"] and o["summary"] != o["explanation"] %}
+{# The scenario page's outcome grid used to print this summary for every
+   outcome. The cards carry the explanation instead, so without this the field
+   would reach no page at all. It is the engine's own restatement of the factor
+   list, so it sits at the end of the collapsed story rather than in the card. #}
+<div class="story-summary">
+  <span class="story-summary-label">Engine summary</span>
+  <p>{{ o["summary"] }}</p>
+</div>
+{% endif %}
+
 {% if o["story"] %}
 {% include "results/partials/steps.html" %}
 {% else %}

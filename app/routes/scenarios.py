@@ -143,6 +143,35 @@ def detail(jid):
     except Exception:
         eta_text = "n/a"
 
+    # A completed scenario's page carries its own result: the futures view used
+    # to live on a separate /results page behind a "View Results" button, so a
+    # finished scenario was a status page with the answer one click away. The
+    # futures sections (split, fan, map, story, outcome cards) render here now;
+    # they need the same context that route built.
+    futures_ctx = None
+    if j.get("status") == "COMPLETED":
+        try:
+            from app.futures import load_futures_view
+            from app.routes.results import _scope_subtitle, _with_colors
+            from app.futures_svg import fan_svg, map_svg
+            fv = load_futures_view(jid)
+            if fv and fv.get("outcomes"):
+                fv = _with_colors(fv)
+                f0 = fv["factors"][0] if fv["factors"] else None
+                fan_html, fan_legend = fan_svg(fv, f0["id"], f0["name"]) if f0 else ("", [])
+                map_html, _cornerstones = map_svg(fv, jid)
+                futures_ctx = {
+                    "fv": fv,
+                    "fan_html": fan_html,
+                    "fan_legend": fan_legend,
+                    "fan_factor": f0,
+                    "map_html": map_html,
+                    "story_o": fv["outcomes"][0],
+                    "scope_subtitle": _scope_subtitle(fv.get("scope", "macro")),
+                }
+        except Exception:
+            futures_ctx = None
+
     from app.routes.chat import panel_context
     # Backcast is shown on the page when it has been run, so the reader does not
     # have to press a button to find out what it said.
@@ -158,10 +187,14 @@ def detail(jid):
                                        for v in stored.values()) else "simulation"}
         except Exception:
             stored_backcast = {}
+    # The futures sections read fv / map_html / fan_* directly (they are shared
+    # with the results template), so unpack the block into the context.
+    ctx = dict(futures_ctx or {})
     return render_template("scenarios/detail.html",
         scenario=j, checkpoint=cp, budget=b,
         chat=panel_context(jid),
         progress_pct=progress_pct, elapsed_text=elapsed_text,
+        futures=ctx or None, **ctx,
         outcomes=outcome_rows,
         backcast=stored_backcast or None,
         steps_used=steps_used, steps_max=steps_max,

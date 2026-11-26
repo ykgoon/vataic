@@ -26,78 +26,7 @@
     <p class="muted disclaimer">These are structured scenario explorations, not predictions.</p>
   </div>
 
-  <section class="fcard">
-    <h2>How the futures split</h2>
-    <div class="split-rows">
-      {% for o in fv["outcomes"] %}
-      <div class="bar-row">
-        <span class="bar-label">{{ o["short_name"] }}</span>
-        <div class="bar-track"><div class="bar-fill" style="width: {{ o["share_pct"] }}%; background: {{ o["color"] }}"></div></div>
-        <span class="bar-pct">{{ o["share_pct"] }}% &middot; {{ o["members"] }} of {{ fv["timelines_explored"] }} timelines</span>
-      </div>
-      {% endfor %}
-    </div>
-  </section>
-
-  <section class="fcard" id="fan-panel">
-    <h2>{{ scope_subtitle }}</h2>
-    {% include "results/partials/fan_inline.html" %}
-  </section>
-
-  <section class="fcard">
-    <h2>The futures map</h2>
-    <p class="hint">All {{ fv["timelines_explored"] }} timelines, left to right. Line thickness = share of timelines. Click a path to open its story; click a fork marker to see why paths split.</p>
-    <div class="map-wrap">{{ map_html|safe }}</div>
-    <div id="map-rationale" class="map-rationale"></div>
-  </section>
-
-  <section class="fcard">
-    <h2>Story of the selected path</h2>
-    <div id="story-panel">{% with o = story_o, expand_all = false %}{% include "results/partials/story.html" %}{% endwith %}</div>
-  </section>
-
-  <section class="cards-row" id="cards-row">
-    {% for o in fv["outcomes"] %}
-    <div class="oc" style="border-top: 3px solid {{ o["color"] }}">
-      <span class="badge badge-{{ o["band"]|lower }}">{{ o["band"] }}</span>
-      <h3>{{ o["short_name"] }}</h3>
-      <div class="prob">{{ o["share_pct"] }}% &middot; {{ o["members"] }} of {{ fv["timelines_explored"] }} timelines</div>
-      {# Arc is this card's narrative. A real LLM explanation is always the
-         narrative; without one, the stored summary is a machine restatement
-         of the same factor list the chips already show, so it is only used
-         when there are no chips to carry it. Whichever text is shown here is
-         not repeated again inside the expanded story. #}
-      {% if o["explanation"] and o["explanation"] != o["summary"] %}
-      {% set arc_text = o["explanation"] %}
-      {% elif not o["end_deltas"] %}
-      {% set arc_text = o["summary"] %}
-      {% else %}
-      {% set arc_text = "" %}
-      {% endif %}
-      {% if arc_text %}
-      <div class="arc">{% for para in arc_text|paragraphs %}<p>{{ para }}</p>{% endfor %}</div>
-      {% endif %}
-      {% if o["end_deltas"] %}
-      <div class="chips">
-        {% for d in o["end_deltas"][:4] %}
-        <span class="chip">{{ d["name"] }} <span class="{{ 'up' if d["delta"] >= 0 else 'dn' }}">{{ d["phrase"] }}</span></span>
-        {% endfor %}
-      </div>
-      {% endif %}
-      {# One narrative section replaces the four overlapping lists (causal
-         path, watch for, assumes, what could break it): they restated the
-         same ranked factors in four verb registers. The Arc paragraph above
-         is this card's narrative, so the expanded story omits it. #}
-      <details class="oc-story" id="oc-story-{{ o["id"] }}">
-        <summary>Read the full story</summary>
-        <div class="oc-story-body"
-             hx-get="/results/{{ scenario['id'] }}/story?oid={{ o['id'] }}&expand=1{% if arc_text %}&hide_explanation=1{% endif %}"
-             hx-trigger="reveal once, click from:body"
-             hx-swap="innerHTML">Loading story&hellip;</div>
-      </details>
-    </div>
-    {% endfor %}
-  </section>
+  {% include "results/partials/futures_body.html" %}
 
   <div class="actions-row">
     <a href="/scenarios/{{ scenario['id'] }}" class="btn btn-primary">Back to Scenario</a>

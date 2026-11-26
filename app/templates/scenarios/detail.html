@@ -1,6 +1,13 @@
 {% extends "base.html" %}
 {% block title %}Scenario {{ scenario["id"][:8] }} — Vataic{% endblock %}
 {% block content %}
+{# One page per scenario, whether it is still running or finished. The job's
+   own telemetry (progress, loop bounds) and the reading of its result (the
+   futures view, the outcome cards, the backcast) used to live on two pages
+   with a "View Results" button between them; that split made the reader
+   choose between a status page and an answer page for the same scenario.
+   Ordering follows what the reader needs: for a finished scenario the result
+   leads and the telemetry follows; while it runs, the reverse. #}
 <div class="scenario-detail-card">
   <div class="scenario-detail-header">
     <h1>Scenario {{ scenario["id"] }}</h1>
@@ -51,6 +58,36 @@
   </div>
   {% endif %}
 
+  {% if futures %}
+  {# Result first: a completed scenario's page opens with what came out of it. #}
+  <div class="futures-view">
+    <div class="futures-head">
+      <div class="futures-meta">
+        <span>horizon: {{ fv["horizon"] }}</span>
+        <span>&middot;</span>
+        <span>{{ fv["timelines_explored"] }} timelines explored</span>
+        <span>&middot;</span>
+        <span>{{ fv["outcomes"]|length }} distinct future{{ '' if fv["outcomes"]|length == 1 else 's' }}</span>
+        {% if fv["heuristic_mode"] %}
+        <span class="heuristic-badge" title="This scenario completed without any LLM calls; narrative text is template-generated from stored data.">heuristic mode</span>
+        {% endif %}
+        {% if fv["story_source"] == "milestones" and not fv["heuristic_mode"] %}
+        <span class="heuristic-badge" title="Story steps were derived from stored factor trajectories, not recorded events.">milestone-derived story</span>
+        {% endif %}
+      </div>
+      <p class="muted disclaimer">These are structured scenario explorations, not predictions.</p>
+    </div>
+    {% include "results/partials/futures_body.html" %}
+  </div>
+
+  {# Backcast sits after the futures it inverts: it reads the same outcomes. #}
+  <div class="scenario-backcast">
+    <div id="backcast-panel">
+      {% include "scenarios/backcast_panel.html" with context %}
+    </div>
+  </div>
+  {% endif %}
+
   <div class="scenario-progress">
     <h2>Progress</h2>
     <div class="progress-bar-wrapper">
@@ -82,6 +119,11 @@
     </div>
   </div>
 
+  {# Without a futures view (still running, or no artifact recorded) the stored
+     outcome rows are the only view of the result, so they get their own grid.
+     When the futures cards are present they already carry every field this
+     grid showed. #}
+  {% if not futures %}
   <div class="scenario-outcomes">
     <h2>Outcomes</h2>
     {% if outcomes|length == 0 %}
@@ -96,24 +138,31 @@
           </div>
           <span class="band badge-{{ o["band"]|lower }}">{{ o["band"] }}</span>
           <p class="outcome-text">{{ o["summary"][:220] }}{% if o["summary"]|length > 220 %}...{% endif %}</p>
+          {# The retired /results page let a reader expand one outcome to read its
+             full explanation; that content belongs here rather than being lost
+             with the page. Only shown when it says more than the summary. #}
+          {% if o["explanation"] and o["explanation"] != o["summary"] %}
+          <details class="oc-explanation">
+            <summary>Read the full explanation</summary>
+            {% for para in o["explanation"]|paragraphs %}<p>{{ para }}</p>{% endfor %}
+          </details>
+          {% endif %}
+          {% if o["watches"] %}
+          <div class="outcome-watches">
+            <span class="outcome-label">What to watch, and what would undo this path</span>
+            <ul class="watch-list">
+              {% for w in o["watches"] %}<li>{{ w }}</li>{% endfor %}
+            </ul>
+          </div>
+          {% endif %}
         </div>
         {% endfor %}
       </div>
     {% endif %}
   </div>
-
-  {% if scenario["status"] == "COMPLETED" %}
-  {# Backcast lives with the outcomes it works backwards from, not in the
-     action row: it is a reading of this scenario, not a job control. #}
-  <div class="scenario-backcast">
-    <div id="backcast-panel">
-      {% include "scenarios/backcast_panel.html" with context %}
-    </div>
-  </div>
   {% endif %}
 
   <div class="scenario-actions">
-    <a href="/results/{{ scenario["id"] }}" class="btn btn-primary">View Results</a>
     {% if scenario["status"] in ['RUNNING', 'CHECKPOINTING'] %}
     <button hx-post="/scenarios/{{ scenario["id"] }}/suspend" hx-target="#status-{{ scenario["id"] }}" hx-swap="innerHTML" class="btn btn-secondary">Suspend</button>
     {% endif %}
