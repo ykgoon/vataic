@@ -10,7 +10,7 @@
 
 {% if o["explanation"] and not hide_explanation %}
 <div class="story-explanation">
-  <p>{{ o["explanation"] }}</p>
+  {% for para in o["explanation"]|paragraphs %}<p>{{ para }}</p>{% endfor %}
 </div>
 {% endif %}
 

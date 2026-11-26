@@ -9,6 +9,14 @@ def create_app(config_override: dict | None = None) -> Flask:
     if config_override:
         app.config.update(config_override)
 
+    # Narrative text (outcome explanations, summaries) is stored as one string
+    # per outcome: an LLM writes it as prose and the heuristic writer joins its
+    # lines with spaces. `paragraphs` splits it into readable blocks at render
+    # time, so stored text needs no migration and already-saved scenarios read
+    # correctly without a rerun.
+    from app.narrate import paragraphs as _paragraphs
+    app.jinja_env.filters["paragraphs"] = _paragraphs
+
     # Auto-migrate schema on startup (idempotent).
     try:
         from app.migrate import apply_pending

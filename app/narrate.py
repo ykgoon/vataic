@@ -242,9 +242,19 @@ def sanitize_prose(text: str) -> str:
     Idempotent and conservative: only explicit references to the 0-100 scale,
     "/100" values, and the word "baseline" are touched, so ordinary prose and
     probabilities survive unchanged.
+
+    Paragraph breaks are preserved: the whitespace tidy-up below collapses runs
+    of spaces, and running it over the whole string would also flatten a model's
+    own paragraphing into one wall of text. So each block is sanitized on its
+    own and the original break structure is put back.
     """
     if not text:
         return text
+    blocks = re.split(r"(\n\s*\n)", str(text))
+    return "".join(b if b.strip() == "" else _sanitize_block(b) for b in blocks)
+
+
+def _sanitize_block(text: str) -> str:
     out = str(text)
     out = _PAREN_VALUE.sub("", out)
     out = _FROM_TO.sub(lambda m: end_state(delta_of(m.group(1))), out)
@@ -278,3 +288,75 @@ def prose_has_index(text: str) -> bool:
         return False
     return bool(re.search(r"/100|\bbaselines?\b|out of 100|100-point scale",
                           str(text), re.I))
+
+
+# Words that start a new sentence but must not start a new paragraph: a
+# fragment this short is a pronoun or connective continuing the previous
+# thought ("The path forms because...", "It then..."), so breaking there would
+# chop the prose into stubs.
+_MIN_PARAGRAPH_CHARS = 90
+
+
+def paragraphs(text: str, min_chars: int = _MIN_PARAGRAPH_CHARS) -> list[str]:
+    """Split a narrative block into readable paragraphs.
+
+    Outcome explanations arrive as one wall of prose: an LLM asked for "a clear
+    paragraph" answers with 1000+ characters in five sentences, and the
+    heuristic writer joins its lines with spaces. Both read as a slab.
+
+    Existing line breaks are honoured first, so a model that already wrote
+    paragraphs keeps them. Otherwise the text is split at sentence ends, and
+    short sentences are glued to the paragraph before them, so a paragraph
+    never opens on a fragment like "It then spreads.".
+
+    Deliberately not markdown-aware: the text is rendered as HTML paragraphs,
+    so a Markdown renderer is neither available nor wanted.
+    """
+    if not text:
+        return []
+    text = str(text).strip()
+    if not text:
+        return []
+    blocks = [b.strip() for b in re.split(r"\n\s*\n", text) if b.strip()]
+    if len(blocks) == 1:
+        # One blob: break after sentence-ending punctuation, keeping the
+        # punctuation with its own sentence.
+        sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if s.strip()]
+        blocks = []
+        for s in sentences:
+            # Glue a short sentence onto the previous paragraph only while that
+            # paragraph is itself still short: "It breaks. It then spreads."
+            # belongs together, but a standalone closing line (a disclaimer, a
+            # caveat) must not be swallowed by an already-substantial paragraph.
+            if (blocks and len(s) < min_chars
+                    and len(blocks[-1]) < min_chars):
+                blocks[-1] = blocks[-1] + " " + s
+            else:
+                blocks.append(s)
+    # Any single block still long enough to be a wall gets split at its
+    # sentence boundary nearest the middle, recursively, so an unpunctuated
+    # 1200-character run does not survive as one paragraph.
+    out: list[str] = []
+    for b in blocks:
+        out.extend(_split_long(b, min_chars * 3))
+    return [p for p in out if p]
+
+
+def _split_long(block: str, limit: int) -> list[str]:
+    """Break an over-long paragraph at the sentence boundary nearest its middle."""
+    if len(block) <= limit:
+        return [block]
+    parts = [s.strip() for s in re.split(r"(?<=[.!?])\s+", block) if s.strip()]
+    if len(parts) < 2:
+        # No sentence boundary to use; leave it alone rather than cut a clause.
+        return [block]
+    mid = len(block) / 2.0
+    best, best_pos, pos = 0, 0, 0
+    for i, s in enumerate(parts[:-1]):
+        pos += len(s) + 1
+        if abs(pos - mid) < abs(best_pos - mid) or best_pos == 0:
+            best, best_pos = i, pos
+    head = " ".join(parts[:best + 1])
+    tail = " ".join(parts[best + 1:])
+    return _split_long(head, limit) + _split_long(tail, limit)
+

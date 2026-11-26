@@ -333,6 +333,60 @@ def test_completed_report_renders_no_index_numbers():
             assert bad not in body, f"{path}: {bad!r}"
 
 
+def test_paragraphs_splits_a_wall_of_prose():
+    """Outcome explanations are stored as one string but must read as paragraphs.
+
+    An LLM asked for "a clear paragraph" returns 1000+ characters in five
+    sentences; rendering that as a single <p> is a slab. The splitter works at
+    render time so already-stored scenarios read correctly without a rerun.
+    """
+    from app.narrate import paragraphs
+
+    wall = ("This is the single dominant future in which three core areas all drift "
+            "below starting point and keep sliding downward by the end of the horizon. "
+            "Income Trajectory ends well below where it started, Emotional Regulation "
+            "drops to about 36, and Habit Consistency settles at about 37. The path "
+            "forms because these three areas decline together and reinforce one another. "
+            "For the premise, the meaning is sobering: the job is not the source of the "
+            "strain, the surrounding trends are.")
+    ps = paragraphs(wall)
+    assert len(ps) >= 3, ps
+    assert all(p.strip() for p in ps)
+    # Nothing is lost or duplicated by the split.
+    assert " ".join(ps).split() == wall.split()
+    # No paragraph is a dangling fragment.
+    assert all(len(p) >= 40 for p in ps), [len(p) for p in ps]
+
+
+def test_paragraphs_honours_existing_breaks_and_glues_fragments():
+    from app.narrate import paragraphs
+    # A model that already wrote paragraphs keeps them.
+    assert paragraphs("First point.\n\nSecond point.\n\nThird point.") == \
+        ["First point.", "Second point.", "Third point."]
+    # A short sentence continues the previous thought instead of opening a stub.
+    glued = paragraphs("It breaks. It then spreads. The system fails badly across every "
+                       "region of the map and keeps failing for a long time.")
+    assert len(glued) == 1
+    assert glued[0].startswith("It breaks.")
+    # Degenerate input must not throw.
+    assert paragraphs("") == []
+    assert paragraphs("   ") == []
+
+
+def test_sanitize_prose_preserves_paragraph_breaks():
+    """Sanitizing must not flatten a multi-paragraph explanation into one block."""
+    from app.narrate import sanitize_prose
+    src = ("Income ends well below where it started.\n\n"
+           "Habit Consistency settles near baseline.\n\n"
+           "Watch for: churn.")
+    out = sanitize_prose(src)
+    assert out.count("\n\n") == 2, out
+    assert "baseline" not in out.lower()
+    # Ordinary single-paragraph prose is unchanged.
+    plain = "This path has a 99.5 percent chance across 12 timelines."
+    assert sanitize_prose(plain) == plain
+
+
 def test_sanitize_prose_rewrites_leaked_index_values():
     from app.narrate import prose_has_index, sanitize_prose
     cases = {

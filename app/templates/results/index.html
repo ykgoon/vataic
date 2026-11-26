@@ -75,7 +75,7 @@
       {% set arc_text = "" %}
       {% endif %}
       {% if arc_text %}
-      <p class="arc">{{ arc_text }}</p>
+      <div class="arc">{% for para in arc_text|paragraphs %}<p>{{ para }}</p>{% endfor %}</div>
       {% endif %}
       {% if o["end_deltas"] %}
       <div class="chips">

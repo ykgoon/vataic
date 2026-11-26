@@ -120,7 +120,11 @@ def _narrative(outcome: dict, premise: str, names: dict) -> str:
     if risks:
         lines.append("Risks: " + "; ".join(risks[:2]) + ".")
     lines.append(DISCLAIMER)
-    return " ".join(lines)
+    # Paragraphs, not one slab: the opening line says what the path is, the
+    # movement line says how it gets there, and the signals/caveat are the
+    # reader's takeaway. Blank line = paragraph break, which the renderer and
+    # sanitize_prose both preserve.
+    return "\n\n".join(lines)
 
 def vectorize(particles: list[dict], keys: list[str]) -> np.ndarray:
     return np.array([[p.get("factor_state", {}).get(k, 50.0) for k in keys] for p in particles],
@@ -303,10 +307,11 @@ def explain(outcome: dict, use_llm=False, scenario_id="", db_path=None,
             r = LLMClient(db_path=db_path).chat(scenario_id or "x", "explanation", [
                 {"role": "system", "content":
                  "You are explaining one scenario-projection outcome to a non-technical reader. "
-                 "Given the outcome JSON, return JSON with keys: explanation (a clear paragraph: "
-                 "what this future is, the concrete story of how the world gets there, and what "
-                 "it means for the premise question — reference the premise's actual subject and "
-                 "question; never write generic filler), "
+                 "Given the outcome JSON, return JSON with keys: explanation (2-3 short paragraphs, "
+                 "separated by a blank line: what this future is, the concrete story of how the "
+                 "world gets there, and what it means for the premise question — reference the "
+                 "premise's actual subject and question; never write generic filler. Each paragraph "
+                 "must be 1-3 sentences and readable on its own, not one long block), "
                  "indicators (list of early signals specific to the premise), assumptions (list), risks (list). "
                  "Use plain language and full factor names; never raw factor ids. "
                  "Never quote index numbers, never write values like 35/100 or "
