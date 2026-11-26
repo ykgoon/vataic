@@ -270,8 +270,7 @@ def reexplain(jid):
             o = {"name": r["name"], "probability": r["probability"], "band": r["band"],
                  "summary": r["summary"], "factor_states": _j(r.get("factor_states")),
                  "indicators": _j(r.get("indicators")), "assumptions": _j(r.get("assumptions")),
-                 "risks": _j(r.get("risks")), "causal_path": _j(r.get("causal_path")),
-                 "order": r.get("order")}
+                 "risks": _j(r.get("risks")), "causal_path": _j(r.get("causal_path"))}
             e = explain(o, use_llm=True, scenario_id=jid, premise=premise)
             if e.get("explanation") and e["explanation"] != (r.get("explanation") or ""):
                 def _upd(_e=e, _rid=r["id"]):

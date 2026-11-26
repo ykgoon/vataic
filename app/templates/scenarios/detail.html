@@ -90,7 +90,6 @@
           <div class="outcome-header">
             <span class="outcome-name">{{ o["name"] }}</span>
             <span class="outcome-prob">{{ o["prob_display"] }}</span>
-            {% if o["order"] %}<span class="order-badge">O{{ o["order"] }}</span>{% endif %}
           </div>
           <span class="band badge-{{ o["band"]|lower }}">{{ o["band"] }}</span>
           <p class="outcome-text">{{ o["summary"][:220] }}{% if o["summary"]|length > 220 %}...{% endif %}</p>

@@ -122,7 +122,6 @@ def prepare_outcomes(outs: list[dict], jid: str, db_path=None) -> list[dict]:
             "assumptions": as_list(o.get("assumptions")),
             "risks": as_list(o.get("risks")),
             "causal_path": as_list(o.get("causal_path"), limit=8),
-            "order": o.get("order") or 1,
         })
     return rows
 

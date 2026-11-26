@@ -517,7 +517,6 @@ def build_futures_view(jid: str, db_path=None) -> dict | None:
             "assumptions": _j(o.get("assumptions")),
             "risks": _j(o.get("risks")),
             "causal_path": _j(o.get("causal_path")),
-            "order": o.get("order") or 1,
             "end_deltas": [{"id": k, "name": names.get(k, k), "delta": v,
                             "phrase": level_word(v)}
                            for k, v in sorted(_end_deltas(series, base_of).items(),

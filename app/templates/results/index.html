@@ -60,7 +60,6 @@
     {% for o in fv["outcomes"] %}
     <div class="oc" style="border-top: 3px solid {{ o["color"] }}">
       <span class="badge badge-{{ o["band"]|lower }}">{{ o["band"] }}</span>
-      {% if o["order"] %}<span class="order-badge">O{{ o["order"] }}</span>{% endif %}
       <h3>{{ o["short_name"] }}</h3>
       <div class="prob">{{ o["share_pct"] }}% &middot; {{ o["members"] }} of {{ fv["timelines_explored"] }} timelines</div>
       {# Arc is this card's narrative. A real LLM explanation is always the
