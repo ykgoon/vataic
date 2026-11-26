@@ -1,0 +1,52 @@
+{# One outcome's backcast card. Rendered by the panel (deterministic reading) and
+   by the per-outcome model route (which swaps this same card for the upgraded
+   version), so both paths look identical and a failed upgrade is invisible. #}
+{% if b %}
+<div class="backcast-card" id="backcast-card-{{ o['id'] }}">
+  <div class="backcast-card-head">
+    <span class="band badge-{{ o['band']|lower }}">{{ o['band'] }}</span>
+    <strong>{{ o['name'] }}</strong>
+    <span class="backcast-prob">{{ (o['probability'] * 100) | round(0) | int }}%</span>
+  </div>
+
+  {% if b['pivots'] %}
+  <div class="backcast-pivots">
+    <span class="backcast-label">What this future hinges on</span>
+    <ul>
+      {% for p in b['pivots'] %}
+      <li>{{ p['name'] }} — ends {{ p['direction'] }} here
+        {%- if p['varies'] %}, and varied by {{ p['varies'] | round(0) | int }} points
+          across the timelines that reach it{% endif %}
+        {%- if p['drivers'] %}; driven by {{ p['drivers'] | join(', ') }}{% endif %}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  {% if b['decisions'] %}
+  <ol class="backcast-decisions">
+    {% for d in b['decisions'] %}
+    <li>
+      <span class="backcast-decision">{{ d['decision'] }}</span>
+      {% if d['targets'] %}<span class="backcast-targets">acts on {{ d['targets'] }}</span>{% endif %}
+      {% if d['why'] %}<span class="backcast-why">{{ d['why'] }}</span>{% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+  {% else %}
+  <p class="muted">No factor both moved sharply and stayed open across the
+    timelines that reach this future, so the simulation gives no evidence for what
+    would change it. No decisions are offered rather than inventing them.</p>
+  {% endif %}
+
+  {% if b['caveat'] %}
+  <p class="backcast-caveat">{{ b['caveat'] }}</p>
+  {% endif %}
+</div>
+{% elif unavailable %}
+{# The model could not be reached: leave the deterministic reading in place. #}
+<div class="backcast-card backcast-card-unavailable" id="backcast-card-{{ oid }}">
+  <p class="muted">The model reading is unavailable right now{% if err %} ({{ err }}){% endif %};
+    the reading above was derived from the simulation.</p>
+</div>
+{% endif %}

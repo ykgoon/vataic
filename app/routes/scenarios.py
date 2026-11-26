@@ -1,6 +1,9 @@
 """Scenario routes: submission form, dashboard with htmx polling, detail + controls."""
 import json
+import logging
 from flask import Blueprint, request, redirect, url_for, render_template, flash
+
+logger = logging.getLogger(__name__)
 
 bp = Blueprint("scenarios", __name__)
 
@@ -141,11 +144,26 @@ def detail(jid):
         eta_text = "n/a"
 
     from app.routes.chat import panel_context
+    # Backcast is shown on the page when it has been run, so the reader does not
+    # have to press a button to find out what it said.
+    stored_backcast = {}
+    if j.get("status") == "COMPLETED":
+        try:
+            from app.backcast import load_backcast
+            stored = load_backcast(jid)
+            if stored:
+                stored_backcast = {"outcomes": stored,
+                                   "source": "llm" if any(
+                                       (v or {}).get("source") == "llm"
+                                       for v in stored.values()) else "simulation"}
+        except Exception:
+            stored_backcast = {}
     return render_template("scenarios/detail.html",
         scenario=j, checkpoint=cp, budget=b,
         chat=panel_context(jid),
         progress_pct=progress_pct, elapsed_text=elapsed_text,
         outcomes=outcome_rows,
+        backcast=stored_backcast or None,
         steps_used=steps_used, steps_max=steps_max,
         branches_used=branches_used, branches_max=branches_max,
         budget_pct=budget_pct, eta_text=eta_text)
@@ -296,23 +314,82 @@ def reexplain(jid):
 
 @bp.get("/scenarios/<jid>/backcast")
 def backcast(jid):
-    """LLM-driven backcast: work backwards from outcomes to identify
-    decisions that would lead to each future."""
+    """Backcast one scenario: the decisions that would make each outcome happen.
+
+    This renders into the page's own `#backcast-panel`, not the status badge:
+    the old target had no id, so its result was never displayed at all. The
+    panel is filled with a "working" state first and the result replaces it on
+    the same request, so the reader sees the work and then the answer.
+    """
     from app.scenarios.repos import get_scenario
-    from app.backcast import backcast_to_decisions, save_backcast
+    from app.backcast import build_backcast, save_backcast
     scenario = get_scenario(jid) or {}
     if not scenario:
-        return render_template("scenarios/status_badge.html", status="not found")
+        return render_template("scenarios/backcast_panel.html", jid=jid,
+                               error="Scenario not found.")
     if scenario.get("status") != "COMPLETED":
-        return render_template("scenarios/status_badge.html", status="not completed")
+        return render_template(
+            "scenarios/backcast_panel.html", jid=jid,
+            error="Backcasting needs a completed projection — there are no "
+                  "outcomes to work backwards from yet.")
     try:
-        result = backcast_to_decisions(jid)
-        if result:
+        result = build_backcast(jid)
+        if result.get("outcomes"):
             save_backcast(jid, result)
-            return render_template("scenarios/status_badge.html", status=f"backcast: {len(result)} outcomes")
-        return render_template("scenarios/status_badge.html", status="backcast empty")
+            return render_template("scenarios/backcast_panel.html", jid=jid,
+                                   backcast=result, outcomes=_outcomes_for(jid))
+        return render_template(
+            "scenarios/backcast_panel.html", jid=jid,
+            error="This scenario produced no outcomes, so there is nothing to "
+                  "backcast from.")
     except Exception as e:
-        return render_template("scenarios/status_badge.html", status=f"backcast error: {e}")
+        return render_template("scenarios/backcast_panel.html", jid=jid,
+                               error=f"Backcast failed: {e}")
+
+
+@bp.get("/scenarios/<jid>/backcast/<oid>/model")
+def backcast_model(jid, oid):
+    """Model reading for one outcome, layered over the deterministic panel.
+
+    Separate request per outcome so the page never waits on a provider: each
+    card upgrades itself if the call succeeds and keeps the derived reading if
+    it does not.
+    """
+    from app.backcast import enhance_outcome, load_backcast, set_outcome_backcast
+    try:
+        entry = enhance_outcome(jid, oid)
+        if entry:
+            set_outcome_backcast(jid, oid, entry)
+            return render_template("scenarios/backcast_card.html", jid=jid,
+                                   oid=oid, b=entry, o=_outcome_row(jid, oid))
+    except Exception as e:
+        logger.warning("backcast model upgrade failed for %s/%s: %s", jid, oid, e)
+    # No model reading: re-render the stored deterministic card unchanged rather
+    # than replacing good content with an error. The card's own source badge
+    # already says the reading is derived from the simulation, so the page stays
+    # honest without showing an error the reader cannot act on.
+    stored = (load_backcast(jid) or {}).get(oid)
+    if stored:
+        return render_template("scenarios/backcast_card.html", jid=jid, oid=oid,
+                               b=stored, o=_outcome_row(jid, oid))
+    return "", 204
+
+
+def _outcome_row(jid, oid):
+    from app.db import get_conn
+    with get_conn() as c:
+        r = c.execute("SELECT id, name, band, probability, summary FROM outcomes "
+                      "WHERE id=? AND scenario_id=?", (oid, jid)).fetchone()
+    return dict(r) if r else {}
+
+
+def _outcomes_for(jid):
+    """Outcome rows keyed for the backcast panel (name/probability, newest first)."""
+    from app.db import get_conn
+    with get_conn() as c:
+        return [dict(r) for r in c.execute(
+            "SELECT id, name, band, probability, summary FROM outcomes "
+            "WHERE scenario_id=? ORDER BY probability DESC", (jid,))]
 
 @bp.get("/scenarios/<jid>/review")
 def review(jid):

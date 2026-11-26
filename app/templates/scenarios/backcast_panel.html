@@ -1,0 +1,67 @@
+{# Backcast panel: the decisions that would make each outcome happen.
+
+   This is the only part of the product that offers action rather than
+   description, so it says plainly what kind of claim it is: the levers are
+   derived from the simulation's fork data, and the named decisions are a
+   model's reading of those levers — not a recommendation grounded in the
+   reader's whole situation.
+
+   Rendered two ways: standalone by the route (passes `jid`) and included by
+   detail.html (which has `scenario`). #}
+{% set sid = jid if jid is defined and jid else scenario["id"] %}
+<div class="backcast-panel">
+  {% if error %}
+  <p class="backcast-error">{{ error }}</p>
+
+  {% else %}
+  <div class="backcast-head">
+    <h2>What would make each future happen</h2>
+    <span class="backcast-source backcast-source-{{ backcast['source'] if backcast else 'simulation' }}">
+      {% if backcast and backcast['source'] == 'llm' %}model reading of the simulation
+      {% else %}derived from the simulation{% endif %}
+    </span>
+  </div>
+  <p class="backcast-intro">
+    Working backwards from each projected future to the decisions that would make
+    it more likely. The levers come from the simulation — the factors that
+    actually separated these timelines at their forks.
+  </p>
+
+  {% if backcast and backcast['outcomes'] %}
+    {% if backcast['source'] != 'llm' %}
+    <div class="backcast-actions">
+      <button id="backcast-upgrade-all" type="button" class="btn btn-secondary btn-sm">
+        Ask the model for concrete moves
+      </button>
+      <span class="backcast-hint muted">
+        The levers below come from the simulation. This adds one model reading per
+        future, naming specific actions — slower, and its own interpretation.
+      </span>
+    </div>
+    {% endif %}
+    {% for o in outcomes %}
+      {% set b = backcast['outcomes'].get(o['id']) %}
+      {% if b %}
+        {% include "scenarios/backcast_card.html" with context %}
+        {# Cards upgrade in parallel when the reader asks for it, never on page
+           load: a detail page is often just glanced at, and each upgrade is a
+           provider call. One button fires every card's request at once, so a
+           slow model delays them together instead of serially. #}
+        <div style="display:none"
+             hx-get="/scenarios/{{ sid }}/backcast/{{ o['id'] }}/model"
+             hx-trigger="click from:#backcast-upgrade-all"
+             hx-target="#backcast-card-{{ o['id'] }}"
+             hx-swap="outerHTML"></div>
+      {% endif %}
+    {% endfor %}
+  {% else %}
+    <div class="backcast-empty">
+      <p>No backcast yet.</p>
+      <button hx-get="/scenarios/{{ sid }}/backcast"
+              hx-target="#backcast-panel" hx-swap="innerHTML"
+              hx-disabled-elt="this"
+              class="btn btn-secondary">Run backcast</button>
+    </div>
+  {% endif %}
+  {% endif %}
+</div>

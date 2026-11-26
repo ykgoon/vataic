@@ -70,9 +70,13 @@ class ExplanationOut(BaseModel):
     assumptions: list[str] = []
     risks: list[str] = []
 
+class BackcastOut(BaseModel):
+    decisions: list[dict] = []
+    caveat: str = ""
+
 VALIDATORS = {"parse": ParseOut, "factors": FactorOut, "causal": CausalOut,
               "step": StepOut, "epoch": EpochOut, "cluster": ClusterOut,
-              "explanation": ExplanationOut}
+              "explanation": ExplanationOut, "backcast": BackcastOut}
 
 # ---------- client (5.1) ----------
 class LLMClient:
@@ -226,7 +230,10 @@ class LLMClient:
         raise RuntimeError(f"LLM call failed after {self.max_attempts}: {last}")
 
 # ---------- role routing (5.2) ----------
-ROLE_PHASES = {"strong": {"causal", "step", "explanation", "parse", "chat"},
+# backcast is a "strong" phase: it must reason about which factor a decision
+# actually acts on, which is the one thing the cheap model gets wrong.
+ROLE_PHASES = {"strong": {"causal", "step", "explanation", "parse", "chat",
+                          "backcast"},
                "cheap": {"epoch", "cluster"},
                "embedding": set()}
 

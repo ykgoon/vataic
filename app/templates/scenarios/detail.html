@@ -4,7 +4,10 @@
 <div class="scenario-detail-card">
   <div class="scenario-detail-header">
     <h1>Scenario {{ scenario["id"] }}</h1>
-    <span class="status-badge status-{{ scenario["status"]|lower }}">{% if scenario["status"] == 'COMPLETED' %}Completed{% elif scenario["status"] == 'FAILED' %}Failed{% elif scenario["status"] == 'RUNNING' %}Running{% else %}{{ scenario["status"] }}{% endif %}</span>
+    {# id is the swap target for Suspend/Resume/Cancel/Retry: without it those
+       buttons posted successfully and updated nothing on screen. #}
+    <span class="status-badge status-{{ scenario["status"]|lower }}"
+          id="status-{{ scenario["id"] }}">{% if scenario["status"] == 'COMPLETED' %}Completed{% elif scenario["status"] == 'FAILED' %}Failed{% elif scenario["status"] == 'RUNNING' %}Running{% else %}{{ scenario["status"] }}{% endif %}</span>
   </div>
 
   <div class="scenario-premise">
@@ -99,6 +102,16 @@
     {% endif %}
   </div>
 
+  {% if scenario["status"] == "COMPLETED" %}
+  {# Backcast lives with the outcomes it works backwards from, not in the
+     action row: it is a reading of this scenario, not a job control. #}
+  <div class="scenario-backcast">
+    <div id="backcast-panel">
+      {% include "scenarios/backcast_panel.html" with context %}
+    </div>
+  </div>
+  {% endif %}
+
   <div class="scenario-actions">
     <a href="/results/{{ scenario["id"] }}" class="btn btn-primary">View Results</a>
     {% if scenario["status"] in ['RUNNING', 'CHECKPOINTING'] %}
@@ -118,9 +131,6 @@
        Plain form post (not htmx): HX-Redirect + swap raced into a
        swapError; a full-page redirect is deterministic and gives the
        confirm() dialog for free. #}
-    {% if scenario["status"] == "COMPLETED" %}
-    <button hx-get="/scenarios/{{ scenario["id"] }}/backcast" hx-target="#status-{{ scenario["id"] }}" hx-swap="innerHTML" class="btn btn-secondary">Backcast</button>
-    {% endif %}
     <form method="post" action="/scenarios/{{ scenario["id"] }}/delete" style="display:inline"
           onsubmit="return confirm('Delete this scenario and all its data? This cannot be undone.');">
       <button type="submit" class="btn btn-danger">Delete</button>

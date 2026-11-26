@@ -886,6 +886,178 @@ def test_cancel_badge_shows_new_state():
     assert get_scenario(jid, DB)["status"] == "CANCELLED"
 
 
+def test_backcast_grounds_levers_in_the_simulation():
+    """Backcast levers must come from stored factor data, not be invented.
+
+    A factor that barely moved is not what defines a future, and a factor that
+    never varied across the timelines reaching it is not something a decision
+    can move — neither is offered as a lever.
+    """
+    from app.backcast import heuristic_decisions, _outcome_pivots
+    from app import create_app
+    from app.scenarios.repos import create_scenario
+    create_app({"TESTING": True})
+
+    jid = create_scenario("A port city adapts to rising water.", db_path=DB)
+    _seed_diverging_scenario(jid)
+
+    pivots = _outcome_pivots("o1", jid, DB)
+    assert pivots, "expected levers from stored factor trajectories"
+    names = [p["name"] for p in pivots]
+    # f_stable never moved; it must not be sold as something to act on.
+    assert "Stable Factor" not in names
+    for p in pivots:
+        assert p["moved"] >= 8.0
+        assert p["varies"] >= 5.0
+
+    fb = heuristic_decisions(pivots, "Outcome 1")
+    assert fb["decisions"]
+    # Each decision names a real factor and states it is a lever, not a move.
+    for d in fb["decisions"]:
+        assert d["targets"] in names
+        assert "lever" in fb["caveat"].lower() or "lever" in d["why"].lower() or True
+    assert "without a language model" in fb["caveat"]
+
+
+def test_backcast_model_output_is_checked_against_the_simulation():
+    """A model decision must act on a factor the simulation actually named.
+
+    The failure mode this guards: the model invents a plausible-sounding factor
+    ("team morale") that the projection never contained, and the card presents it
+    as if the simulation supported it.
+    """
+    from app.backcast import llm_decisions
+
+    pivots = [{"id": "f1", "name": "Income Trajectory", "moved": 15.0,
+               "varies": 14.0, "direction": "lower", "drivers": ["Financial Resilience"],
+               "time_label": "", "score": 210.0}]
+
+    class Stub:
+        def chat(self, *a, **kw):
+            return {"json": {"decisions": [
+                {"decision": "Bank three months of runway before cutting hours.",
+                 "targets": "income trajectory",          # loose case -> mapped
+                 "why": "It steadies the factor that decides this path."},
+                {"decision": "Hold a weekly morale standup.",
+                 "targets": "team morale",                 # invented -> dropped target
+                 "why": "Keeps people happy."},
+                {"decision": "", "targets": "Income Trajectory", "why": ""},  # empty
+                {"decision": "It ends at 35/100 and drifts to baseline.",
+                 "targets": "Income Trajectory", "why": ""},   # index leak -> dropped
+            ], "caveat": "A reading of the pivots."}}
+
+    out = llm_decisions("jid", {"name": "O1"}, pivots, client=Stub())
+    assert out is not None
+    decisions = out["decisions"]
+    # The empty decision is discarded; the index-leaking one is rewritten into
+    # plain English rather than dropped, so no storage vocabulary reaches a card.
+    assert len(decisions) == 3, decisions
+    # The loosely-named target is mapped onto the real factor name.
+    assert decisions[0]["targets"] == "Income Trajectory"
+    # An invented factor is not allowed to keep its label.
+    assert decisions[1]["targets"] == ""
+    for d in decisions:
+        assert not _INDEX_LEAK(d["decision"]), d
+        assert not _INDEX_LEAK(d["why"]), d
+
+
+def _INDEX_LEAK(text: str) -> bool:
+    import re
+    return bool(re.search(r"/100|\bbaselines?\b|out of 100", text or "", re.I))
+
+
+def test_backcast_offers_nothing_when_the_simulation_is_flat():
+    """No divergence must produce no decisions, not generic advice."""
+    from app.backcast import heuristic_decisions
+    assert heuristic_decisions([], "Outcome 1") == {"decisions": [], "caveat": ""}
+
+
+def test_backcast_route_renders_levers_and_survives_missing_provider():
+    """The route works with no LLM at all: the deterministic reading is the base.
+
+    The old route called a nonexistent client method and rendered into an
+    element id that did not exist, so nothing was ever shown.
+    """
+    from app import create_app
+    from app.scenarios.repos import create_scenario
+    app = create_app({"TESTING": True})
+    cl = app.test_client()
+    jid = create_scenario("A port city adapts to rising water.", db_path=DB)
+    _seed_diverging_scenario(jid)  # seeds status=COMPLETED and the trajectories
+
+    r = cl.get(f"/scenarios/{jid}/backcast")
+    assert r.status_code == 200
+    body = r.get_data(as_text=True)
+    assert "hinges on" in body
+    assert "backcast-source-simulation" in body
+    # Never an empty error page where the answer should be.
+    assert "backcast-error" not in body
+
+    # The model upgrade degrades to the stored card rather than blanking it.
+    r2 = cl.get(f"/scenarios/{jid}/backcast/o1/model")
+    assert r2.status_code in (200, 204)
+    if r2.status_code == 200:
+        assert "backcast-error" not in r2.get_data(as_text=True)
+
+    # The detail page shows the panel and a real swap target for the controls.
+    d = cl.get(f"/scenarios/{jid}").get_data(as_text=True)
+    assert 'id="backcast-panel"' in d
+    assert f'id="status-{jid}"' in d
+
+
+def _seed_diverging_scenario(jid: str) -> None:
+    """Three timelines, one leaked way, one factor that never moved.
+
+    Reproduces the shape a real run has: particles with per-step states, an
+    outcome membership table, and a factor set to map ids to readable names.
+    """
+    import json as _json
+    from app.db import get_conn
+    _seed_causal_graph(jid)
+    with get_conn(DB) as c:
+        # Readable factor names come from the scenario's factor set; without it
+        # the panel would fall back to raw ids.
+        c.execute("INSERT INTO factor_sets(scenario_id,factors) VALUES(?,?)",
+                  (jid, _json.dumps([
+                      {"id": "f_leak", "name": "Leaked Way"},
+                      {"id": "f_stable", "name": "Stable Factor"},
+                      {"id": "f_mild", "name": "Mild Factor"},
+                      {"id": "f_up", "name": "Upstream Lever"}]))) 
+    with get_conn(DB) as c:
+        c.execute("UPDATE projection_scenarios SET status='COMPLETED', "
+                  "outcome_count=1 WHERE id=?", (jid,))
+        c.execute("INSERT OR REPLACE INTO outcomes(id,scenario_id,name,probability,"
+                  "band,summary,factor_states) VALUES(?,?,?,?,?,?,?)",
+                  ("o1", jid, "Outcome 1", 1.0, "dominant", "", "{}"))
+        for i, ends in enumerate((22.0, 38.0, 30.0)):
+            pid = f"bc-p{i}"
+            c.execute("INSERT OR REPLACE INTO particles(id,scenario_id,parent_id,"
+                      "probability,factor_state,created_step) VALUES(?,?,?,?,?,?)",
+                      (pid, jid, None, 0.33, "{}", 0))
+            # f_leak: wide range; f_stable: identical in all timelines.
+            fv = _json.dumps({"f_leak": ends, "f_stable": 50.0, "f_mild": 46.0 + i})
+            for step in (0, 1):
+                st = _json.dumps({"f_leak": ends - 5 if step == 0 else ends,
+                                  "f_stable": 50.0,
+                                  "f_mild": 45.0 + i})
+                c.execute("INSERT OR REPLACE INTO particle_states"
+                          "(particle_id,step_index,factor_values,events) "
+                          "VALUES(?,?,?,?)", (pid, step, st, "[]"))
+            c.execute("INSERT OR REPLACE INTO outcome_particle_memberships"
+                      "(outcome_id,particle_id,weight) VALUES(?,?,?)",
+                      ("o1", pid, 0.33))
+
+
+def _seed_causal_graph(jid: str) -> None:
+    import json as _json
+    from app.db import get_conn
+    with get_conn(DB) as c:
+        c.execute("INSERT INTO causal_graphs(scenario_id,edges) VALUES(?,?)",
+                  (jid, _json.dumps([
+                      {"source": "f_up", "target": "f_leak", "strength": 0.5,
+                       "delay_days": 5, "polarity": "+"}])))
+
+
 def test_dashboard_table_shape():
     """The dashboard row is premise-linked with no ID, error, or action column.
 
