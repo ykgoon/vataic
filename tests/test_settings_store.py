@@ -60,38 +60,41 @@ def test_config_env_fallback_when_no_db_row(monkeypatch):
     assert cfg.settings.llm_strong_model == "env-strong-model"
 
 
-def test_api_key_and_secret_are_env_only(monkeypatch):
-    """LLM_API_KEY / FLASK_SECRET_KEY never come from the settings table."""
+def test_api_key_stored_but_write_only_and_secret_env_only(monkeypatch):
+    """llm.api_key is a stored setting (DB wins over env fallback) but is
+    never rendered back; the Flask secret stays env-only."""
     from app.config import flask_secret_key, llm_api_key
     monkeypatch.setenv("LLM_API_KEY", "sk-env-key")
     monkeypatch.setenv("FLASK_SECRET_KEY", "sekrit")
-    import importlib
-    import app.config as cfg
     with __import__("app.db", fromlist=["get_conn"]).get_conn(DB) as c:
-        c.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('llm.api_key','sk-db-leak')")
+        c.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('llm.api_key','sk-db-key')")
         c.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('secret_key','db-leak')")
-    assert llm_api_key() == "sk-env-key"
-    assert flask_secret_key() == "sekrit"
-    # and the save path refuses such keys outright
-    from app.settings_store import save_many
-    saved, errors = save_many({"llm.api_key": "sk-x", "secret_key": "y"})
-    assert saved == [] and errors == []
+    assert llm_api_key() == "sk-db-key"  # DB row wins
+    # env fallback still applies with no row
     with __import__("app.db", fromlist=["get_conn"]).get_conn(DB) as c:
-        rows = {r["key"]: r["value"] for r in c.execute("SELECT key,value FROM settings")}
-    assert "sk-x" not in rows.values() and "y" not in rows.values()
+        c.execute("DELETE FROM settings WHERE key='llm.api_key'")
+    assert llm_api_key() == "sk-env-key"
+    assert flask_secret_key() == "sekrit"  # never served from the DB row
+    # and the save path refuses it outright (write-only key still saves)
+    from app.settings_store import save_many
+    saved, errors = save_many({"secret_key": "y", "llm.api_key": "sk-x"})
+    assert "llm.api_key" in saved and "secret_key" not in saved
 
 
 def test_save_many_coerces_and_rejects():
     from app.settings_store import ALLOWED, save_many
-    assert "llm.api_key" not in ALLOWED and "secret_key" not in ALLOWED
+    assert "llm.api_key" in ALLOWED and "secret_key" not in ALLOWED
     saved, errors = save_many({
         "budget.max_steps": "55",
         "merge.distance_threshold": "9.5",
         "llm.base_url": "http://newhost:1234/v1",
+        "llm.api_key": "sk-new-key",
+        "secret_key": "y",
         "beam.width": "not-a-number",
         "llm.base_url_x": "http://ignored",
     })
-    assert set(saved) == {"budget.max_steps", "merge.distance_threshold", "llm.base_url"}
+    assert set(saved) == {"budget.max_steps", "merge.distance_threshold", "llm.base_url",
+                          "llm.api_key"}
     assert any("beam.width" in e for e in errors)
     from app.db import get_conn
     with get_conn(DB) as c:
@@ -99,6 +102,21 @@ def test_save_many_coerces_and_rejects():
     assert rows["budget.max_steps"] == "55"
     assert rows["merge.distance_threshold"] == "9.5"
     assert rows["llm.base_url"] == "http://newhost:1234/v1"
+    assert rows["llm.api_key"] == "sk-new-key"
+    assert "y" not in rows.values()
+
+
+def test_save_many_blank_api_key_keeps_existing():
+    """Write-only semantics: an empty llm.api_key submit keeps the stored key."""
+    from app.settings_store import save_many
+    from app.db import get_conn
+    with get_conn(DB) as c:
+        c.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('llm.api_key','sk-keep-me')")
+    saved, errors = save_many({"llm.api_key": "", "beam.width": "7"})
+    assert "llm.api_key" not in saved and not errors
+    with get_conn(DB) as c:
+        rows = {r["key"]: r["value"] for r in c.execute("SELECT key,value FROM settings")}
+    assert rows["llm.api_key"] == "sk-keep-me"
 
 
 def test_saved_settings_flow_into_settings_object():
@@ -146,8 +164,10 @@ def test_settings_page_renders_editable_form_and_probe():
     assert 'name="beam.width"' in body
     # save + test controls
     assert "/settings" in body and "Test Provider" in body
-    # env-key row still shown as read-only state
-    assert "LLM_API_KEY" in body
+    # stored (write-only) api key field present with masked input
+    assert 'name="llm.api_key"' in body and 'type="password"' in body
+    # reachability indicator sits next to the Test Provider button
+    assert "provider-reachability" in body
 
 
 def test_settings_save_route_writes_db_and_redirects():
@@ -163,17 +183,20 @@ def test_settings_save_route_writes_db_and_redirects():
     assert rows["beam.width"] == "9"
 
 
-def test_settings_save_refuses_non_editable_and_bad_values():
+def test_settings_save_stores_key_and_refuses_bad_values():
     from app import create_app
     from app.db import get_conn
     app = create_app({"TESTING": True})
     cl = app.test_client()
-    r = cl.post("/settings", data={"llm.api_key": "sk-leak", "beam.width": "abc"})
+    r = cl.post("/settings", data={"llm.api_key": "sk-stored", "beam.width": "abc"})
     assert r.status_code == 302
     with get_conn(DB) as c:
         rows = {r["key"]: r["value"] for r in c.execute("SELECT key,value FROM settings")}
-    assert "sk-leak" not in rows.values()
+    assert rows["llm.api_key"] == "sk-stored"
     assert rows["beam.width"] != "abc"  # unchanged (validation refused)
+    # the key is never echoed back into the page
+    page = cl.get("/settings").get_data(as_text=True)
+    assert "sk-stored" not in page
 
 
 def test_test_llm_uses_form_values_not_saved(monkeypatch):

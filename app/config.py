@@ -7,9 +7,10 @@ deployment starts with the documented defaults, and operators who prefer env
 config can still set variables without touching the DB. Once a value is
 written to the settings table it wins.
 
-LLM_API_KEY and FLASK_SECRET_KEY are never stored in the DB; they must be
-provided via environment (deploy/env_file). VATAIC_ALLOW_HEURISTIC,
-VATAIC_DB_WRITE_ATTEMPTS/BACKOFF and PORT remain process-level knobs.
+The LLM API key is stored in the DB (llm.api_key, write-only: never
+rendered back by the UI) with LLM_API_KEY env as fallback; the Flask secret
+stays env-only. VATAIC_ALLOW_HEURISTIC, VATAIC_DB_WRITE_ATTEMPTS/BACKOFF
+and PORT remain process-level knobs.
 """
 import os
 from dataclasses import dataclass, field
@@ -132,6 +133,7 @@ def refresh() -> None:
 # keeps its effective values losslessly; after that the DB is the source and
 # the settings page is authoritative.
 ENV_BOOTSTRAP = {
+    "llm.api_key": "LLM_API_KEY",
     "llm.provider": "LLM_PROVIDER",
     "llm.base_url": "LLM_BASE_URL",
     "llm.primary_model": "LLM_PRIMARY_MODEL",
@@ -191,7 +193,13 @@ def flask_secret_key() -> str:
 
 
 def llm_api_key() -> str:
-    """LLM API key: env only (LLM_API_KEY), never stored in the DB."""
+    """LLM API key: stored settings row first (llm.api_key), env fallback.
+
+    Write-only from the UI: the row is never rendered back; a blank save
+    keeps the existing key."""
+    v = _db_setting("llm.api_key")
+    if v:
+        return v
     return _get("LLM_API_KEY", "")
 
 

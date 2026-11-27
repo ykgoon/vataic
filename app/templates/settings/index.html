@@ -10,10 +10,6 @@
     <div class="settings-section">
       <h2>LLM Provider</h2>
       <p class="muted">Used for scenario generation (OpenAI-compatible chat completions).</p>
-      <div class="provider-status">
-        <span class="provider-label">Status:</span>
-        <span class="provider-value">{{ provider_status }}</span>
-      </div>
       <div class="form-row">
         <div class="form-group">
           <label for="k-provider">Provider id</label>
@@ -49,16 +45,17 @@
           <label for="k-max-attempts">Retry attempts</label>
           <input type="number" id="k-max-attempts" name="llm.max_attempts" min="1" value="{{ val('llm.max_attempts') }}">
         </div>
-      </div>
-      <div class="form-group">
-        <label for="k-api-key-test">API key (optional, for this test only)</label>
-        <input type="password" id="k-api-key-test" name="llm.api_key_test" value="" autocomplete="off"
-               placeholder="{{ 'stored env key is used for tests' if llm_key_set else 'needed if the provider requires a key' }}">
-        <p class="form-hint">Never stored — used only by the test request below.</p>
+        <div class="form-group">
+          <label for="k-api-key">API key</label>
+          <input type="password" id="k-api-key" name="llm.api_key" value="" autocomplete="off"
+                 placeholder="{{ 'stored — type to replace' if llm_key_set else 'not set' }}">
+          <p class="form-hint">Stored in the database, never shown again. Leave blank to keep the current key.</p>
+        </div>
       </div>
       <div class="form-actions">
-        <button type="submit" class="btn btn-secondary" form="llm-test-form">Test Provider</button>
-        <span class="muted">…or save first, then test the stored config.</span>
+        <button type="submit" class="btn btn-secondary" formaction="/settings/test-llm" formnovalidate>Test Provider</button>
+        <span id="provider-reachability" class="provider-reachability {{ 'reach-ok' if provider_status.startswith('reachable') else 'reach-bad' }}">{{ provider_status }}</span>
+        <span class="muted">Save Settings writes the values above.</span>
       </div>
     </div>
 
@@ -139,18 +136,6 @@
       <button type="submit" class="btn btn-primary">Save Settings</button>
     </div>
   </form>
-
-  <!-- Standalone provider test: posts only the test inputs, leaves saved values untouched. -->
-  <form method="post" action="/settings/test-llm" id="llm-test-form" class="settings-test-form"></form>
-
-  <div class="settings-section">
-    <h2>API Keys</h2>
-    <p class="muted">Keys live in server environment variables only — never stored in the database or shown here.</p>
-    <div class="provider-status">
-      <span class="provider-label">LLM Key (LLM_API_KEY):</span>
-      <span class="provider-value">{{ "set" if llm_key_set else "not set" }}</span>
-    </div>
-  </div>
 
   <div class="settings-section">
     <h2>Project Info</h2>

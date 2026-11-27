@@ -849,6 +849,30 @@ textarea {
   font-weight: 500;
 }
 
+/* Provider reachability indicator on the settings page (next to Test Provider) */
+.provider-reachability {
+  font-size: 13px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  max-width: 520px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-reachability.reach-ok {
+  background: var(--success-soft);
+  border-color: var(--success);
+  color: var(--success);
+}
+
+.provider-reachability.reach-bad {
+  background: var(--danger-soft);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
 /* Error 404 */
 .error-card {
   text-align: center;

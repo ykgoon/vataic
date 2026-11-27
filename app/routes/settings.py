@@ -98,7 +98,6 @@ def view():
         cheap_model=eff.get("llm.cheap_model", ""),
         provider_status=status,
         llm_key_set=bool(llm_api_key()),
-        data_key_set=False,  # no separate data-provider key in this version
         version=_rows().get("version", "0.1.0"),
         db_path=_db_path_display())
 
@@ -136,8 +135,11 @@ def test_llm():
         from app.config import settings
         base_url = settings.llm_base_url
         model = model or settings.llm_primary_model
-    # Optional inline key: NEVER stored — used for this probe only.
-    key = request.form.get("llm.api_key_test", "").strip() or llm_api_key()
+    # Probe key: an inline override first, then the stored key (llm.api_key
+    # row or env). The inline override is used for this request only.
+    key = (request.form.get("llm.api_key_test", "").strip()
+           or request.form.get("llm.api_key", "").strip()
+           or llm_api_key())
     probe = settings_store.probe_llm(base_url, key, model)
     if probe["ok"]:
         flash(f"Provider OK — {probe['detail']}", "success")

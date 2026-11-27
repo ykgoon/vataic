@@ -1,8 +1,12 @@
 """Settings persistence: the `settings` table is the single config source.
 
 The web UI writes here; app.config.Settings reads these rows (with env as
-bootstrap fallback for values that have no row yet). API keys and the Flask
-secret are deliberately absent from ALLOWED — they stay env-only.
+bootstrap fallback for values that have no row yet).
+
+The LLM API key is a stored setting too (llm.api_key): editable on the
+settings page, but never rendered back — the form shows a masked state
+only, and a save keeps the existing key unless a new value is typed. The
+Flask secret stays env-only.
 """
 import json
 import re
@@ -14,6 +18,7 @@ from app.db import get_conn
 
 # Editable keys: (label, help text, input kind)
 ALLOWED = {
+    "llm.api_key": "API key for the provider (write-only)",
     "llm.provider": "Provider id",
     "llm.base_url": "Base URL of the OpenAI-compatible API (…/v1)",
     "llm.primary_model": "Model used when a phase has no role model (blank = provider default)",
@@ -74,6 +79,21 @@ def save_many(form: dict, db_path=None) -> tuple[list[str], list[str]]:
     saved, errors = [], []
     for key in ALLOWED:
         if key not in form:
+            continue
+        if key == "llm.api_key":
+            # Write-only: an empty submit keeps the stored key; a new value
+            # replaces it. Never echoed back into the form or flashes.
+            v = (form[key] or "").strip()
+            if not v:
+                continue
+            def _once(k=key, val=v):
+                with get_conn(db_path) as c:
+                    c.execute("INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)", (k, val))
+            try:
+                _once()
+                saved.append(key)
+            except sqlite3.OperationalError:
+                errors.append(f"{key}: database is locked, value not saved")
             continue
         ok, v = coerce(key, form[key])
         if not ok:
