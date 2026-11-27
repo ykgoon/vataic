@@ -81,7 +81,8 @@ def _cfg_float(name: str, key: str, default: float) -> float:
 
 @dataclass
 class Settings:
-    llm_provider: str = field(default_factory=lambda: _cfg("LLM_PROVIDER", "llm.provider", "openai-compatible"))
+    # The only provider is openai-compatible; pinned, not configurable.
+    llm_provider: str = "openai-compatible"
     llm_base_url: str = field(default_factory=lambda: _cfg("LLM_BASE_URL", "llm.base_url", "http://localhost:11434/v1"))
     # Blank model is a deliberate config: the provider then applies its own
     # default model (verified against the target gateway). No hardcoded
@@ -121,10 +122,11 @@ def refresh() -> None:
     arrive as one request; the dataclass snapshots values at import time)."""
     f = settings.__dataclass_fields__
     for name in f:
-        if name in ("database_path", "artifact_dir", "port"):
-            continue  # process-level knobs: still env-only
+        if name in ("database_path", "artifact_dir", "port", "llm_provider"):
+            continue  # process knobs / pinned values: not DB-refreshable
         default_factory = f[name].default_factory
-        setattr(settings, name, default_factory())
+        if default_factory is not __import__("dataclasses").MISSING:
+            setattr(settings, name, default_factory())
 
 
 # DB key -> env var for the one-time bootstrap (env value fills a settings
@@ -134,7 +136,6 @@ def refresh() -> None:
 # the settings page is authoritative.
 ENV_BOOTSTRAP = {
     "llm.api_key": "LLM_API_KEY",
-    "llm.provider": "LLM_PROVIDER",
     "llm.base_url": "LLM_BASE_URL",
     "llm.primary_model": "LLM_PRIMARY_MODEL",
     "llm.strong_model": "LLM_STRONG_MODEL",

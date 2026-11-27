@@ -584,7 +584,7 @@ def test_settings_page_shows_effective_values():
     r = cl.get("/settings")
     assert r.status_code == 200
     body = r.get_data(as_text=True)
-    assert "openai-compatible" in body          # provider value rendered
+    assert "OpenAI-compatible (built in)" in body  # pinned provider, disabled input
     assert "Max LLM calls" not in body           # no LLM cap surfaced
     assert body.count("Not configured") <= 1     # at most the optional key row
     assert "not reachable" in body or "reachable" in body  # status probe shown

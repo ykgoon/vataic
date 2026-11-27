@@ -19,7 +19,6 @@ from app.db import get_conn
 # Editable keys: (label, help text, input kind)
 ALLOWED = {
     "llm.api_key": "API key for the provider (write-only)",
-    "llm.provider": "Provider id",
     "llm.base_url": "Base URL of the OpenAI-compatible API (…/v1)",
     "llm.primary_model": "Model used when a phase has no role model (blank = provider default)",
     "llm.strong_model": "Model for parse/causal/step/explanation (blank = primary)",
@@ -65,8 +64,6 @@ def coerce(key: str, raw: str) -> tuple[bool, str]:
     if key == "llm.base_url":
         if v and not re.match(r"^https?://", v):
             return False, "must start with http:// or https://"
-    if key == "llm.provider" and v and not re.match(r"^[a-z0-9-]+$", v):
-        return False, "lowercase letters, digits and dashes only"
     return True, v
 
 

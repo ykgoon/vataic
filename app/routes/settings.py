@@ -35,7 +35,7 @@ def _effective(db_rows: dict) -> dict:
     from app.config import settings
     from app.seed import DEFAULTS
     eff = {
-        "llm.provider": settings.llm_provider,
+        "llm.provider": "openai-compatible",
         "llm.base_url": settings.llm_base_url,
         "llm.primary_model": settings.llm_primary_model,
         "llm.strong_model": settings.llm_strong_model or settings.llm_primary_model,
