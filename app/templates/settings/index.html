@@ -3,36 +3,145 @@
 {% block content %}
 <div class="settings-card">
   <h1>Settings</h1>
-  <p class="muted">Effective runtime configuration — environment defaults with any database overrides applied.</p>
+  <p class="muted">Runtime configuration, stored in the database and editable
+    here. Values take effect immediately after saving — no restart needed.</p>
 
-  <div class="settings-section">
-    <h2>LLM Provider</h2>
-    <p class="muted">Used for scenario generation (OpenAI-compatible chat completions).</p>
-    <div class="provider-status">
-      <span class="provider-label">Provider:</span>
-      <span class="provider-value">{{ provider_name or "Not configured" }}</span>
+  <form method="post" action="/settings" class="settings-form">
+    <div class="settings-section">
+      <h2>LLM Provider</h2>
+      <p class="muted">Used for scenario generation (OpenAI-compatible chat completions).</p>
+      <div class="provider-status">
+        <span class="provider-label">Status:</span>
+        <span class="provider-value">{{ provider_status }}</span>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="k-provider">Provider id</label>
+          <input type="text" id="k-provider" name="llm.provider" value="{{ val('llm.provider') }}">
+        </div>
+        <div class="form-group">
+          <label for="k-base-url">Base URL</label>
+          <input type="text" id="k-base-url" name="llm.base_url" value="{{ val('llm.base_url') }}" placeholder="http://host:11434/v1">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="k-primary-model">Primary model</label>
+          <input type="text" id="k-primary-model" name="llm.primary_model" value="{{ val('llm.primary_model') }}" placeholder="provider default (blank)">
+        </div>
+        <div class="form-group">
+          <label for="k-strong-model">Strong model (parse/causal/explain)</label>
+          <input type="text" id="k-strong-model" name="llm.strong_model" value="{{ val('llm.strong_model') }}" placeholder="same as primary (blank)">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="k-cheap-model">Cheap model (epoch/cluster)</label>
+          <input type="text" id="k-cheap-model" name="llm.cheap_model" value="{{ val('llm.cheap_model') }}" placeholder="same as primary (blank)">
+        </div>
+        <div class="form-group">
+          <label for="k-timeout">Request timeout (s)</label>
+          <input type="number" id="k-timeout" name="llm.timeout_s" min="1" value="{{ val('llm.timeout_s') }}">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="k-max-attempts">Retry attempts</label>
+          <input type="number" id="k-max-attempts" name="llm.max_attempts" min="1" value="{{ val('llm.max_attempts') }}">
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="k-api-key-test">API key (optional, for this test only)</label>
+        <input type="password" id="k-api-key-test" name="llm.api_key_test" value="" autocomplete="off"
+               placeholder="{{ 'stored env key is used for tests' if llm_key_set else 'needed if the provider requires a key' }}">
+        <p class="form-hint">Never stored — used only by the test request below.</p>
+      </div>
+      <div class="form-actions">
+        <button type="submit" class="btn btn-secondary" form="llm-test-form">Test Provider</button>
+        <span class="muted">…or save first, then test the stored config.</span>
+      </div>
     </div>
-    <div class="provider-status">
-      <span class="provider-label">Base URL:</span>
-      <span class="provider-value">{{ base_url or "Not configured" }}</span>
+
+    <h2>Projection Bounds</h2>
+    <p class="muted">Runs are not capped by LLM calls or tokens; only these loop bounds apply.</p>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="k-max-steps">Max steps</label>
+        <input type="number" id="k-max-steps" name="budget.max_steps" min="1" value="{{ val('budget.max_steps') }}">
+      </div>
+      <div class="form-group">
+        <label for="k-max-branches">Max branches</label>
+        <input type="number" id="k-max-branches" name="budget.max_branches" min="1" value="{{ val('budget.max_branches') }}">
+      </div>
     </div>
-    <div class="provider-status">
-      <span class="provider-label">Primary model:</span>
-      <span class="provider-value">{{ model_name or "provider default (unset)" }}</span>
+    <div class="form-group">
+      <label for="k-max-runtime">Max runtime (seconds)</label>
+      <input type="number" id="k-max-runtime" name="budget.max_runtime_s" min="1" value="{{ val('budget.max_runtime_s') }}">
     </div>
-    <div class="provider-status">
-      <span class="provider-label">Strong model (parse/causal/explain):</span>
-      <span class="provider-value">{{ strong_model or "provider default (unset)" }}</span>
+
+    <h2>Engine Thresholds</h2>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="k-beam-width">Beam width</label>
+        <input type="number" id="k-beam-width" name="beam.width" min="1" value="{{ val('beam.width') }}">
+      </div>
+      <div class="form-group">
+        <label for="k-beam-reserved">Beam reserved divergent</label>
+        <input type="number" id="k-beam-reserved" name="beam.reserved_divergent" min="0" value="{{ val('beam.reserved_divergent') }}">
+      </div>
     </div>
-    <div class="provider-status">
-      <span class="provider-label">Cheap model (epoch/cluster):</span>
-      <span class="provider-value">{{ cheap_model or "provider default (unset)" }}</span>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="k-merge-dist">Merge distance threshold</label>
+        <input type="number" step="0.1" id="k-merge-dist" name="merge.distance_threshold" value="{{ val('merge.distance_threshold') }}">
+      </div>
+      <div class="form-group">
+        <label for="k-branch-prob">Branch probability threshold</label>
+        <input type="number" step="0.01" id="k-branch-prob" name="branch.prob_threshold" value="{{ val('branch.prob_threshold') }}">
+      </div>
     </div>
-    <div class="provider-status">
-      <span class="provider-label">Status:</span>
-      <span class="provider-value">{{ provider_status }}</span>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="k-tail-impact">Tail-risk impact threshold</label>
+        <input type="number" step="0.01" id="k-tail-impact" name="tail_risk.impact_threshold" value="{{ val('tail_risk.impact_threshold') }}">
+      </div>
+      <div class="form-group">
+        <label for="k-context-budget">Context token budget</label>
+        <input type="number" id="k-context-budget" name="context.token_budget" min="500" value="{{ val('context.token_budget') }}">
+      </div>
     </div>
-  </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="k-epoch-interval">Epoch interval (steps)</label>
+        <input type="number" id="k-epoch-interval" name="epoch.interval_steps" min="1" value="{{ val('epoch.interval_steps') }}">
+      </div>
+      <div class="form-group">
+        <label for="k-factors-macro">Factor cap (macro)</label>
+        <input type="number" id="k-factors-macro" name="factors.max_macro" min="1" value="{{ val('factors.max_macro') }}">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="k-factors-personal">Factor cap (personal)</label>
+        <input type="number" id="k-factors-personal" name="factors.max_personal" min="1" value="{{ val('factors.max_personal') }}">
+      </div>
+      <div class="form-group">
+        <label for="k-step-min">Step length min (days)</label>
+        <input type="number" id="k-step-min" name="step.min_days" min="1" value="{{ val('step.min_days') }}">
+      </div>
+    </div>
+    <div class="form-group">
+      <label for="k-step-max">Step length max (days)</label>
+      <input type="number" id="k-step-max" name="step.max_days" min="1" value="{{ val('step.max_days') }}">
+    </div>
+
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">Save Settings</button>
+    </div>
+  </form>
+
+  <!-- Standalone provider test: posts only the test inputs, leaves saved values untouched. -->
+  <form method="post" action="/settings/test-llm" id="llm-test-form" class="settings-test-form"></form>
 
   <div class="settings-section">
     <h2>API Keys</h2>
@@ -40,44 +149,6 @@
     <div class="provider-status">
       <span class="provider-label">LLM Key (LLM_API_KEY):</span>
       <span class="provider-value">{{ "set" if llm_key_set else "not set" }}</span>
-    </div>
-  </div>
-
-  <div class="settings-section">
-    <h2>Projection Bounds</h2>
-    <p class="muted">Runs are not capped by LLM calls or tokens; only the loop
-      bounds below apply.</p>
-    <div class="provider-status">
-      <span class="provider-label">Max steps:</span>
-      <span class="provider-value">{{ val("budget.max_steps") }}</span>
-    </div>
-    <div class="provider-status">
-      <span class="provider-label">Max branches:</span>
-      <span class="provider-value">{{ val("budget.max_branches") }}</span>
-    </div>
-    <div class="provider-status">
-      <span class="provider-label">Max runtime (s):</span>
-      <span class="provider-value">{{ val("budget.max_runtime_s") }}</span>
-    </div>
-  </div>
-
-  <div class="settings-section">
-    <h2>Engine Thresholds</h2>
-    <div class="provider-status">
-      <span class="provider-label">Beam width / reserved divergent:</span>
-      <span class="provider-value">{{ val("beam.width") }} / {{ val("beam.reserved_divergent") }}</span>
-    </div>
-    <div class="provider-status">
-      <span class="provider-label">Merge distance threshold:</span>
-      <span class="provider-value">{{ val("merge.distance_threshold") }}</span>
-    </div>
-    <div class="provider-status">
-      <span class="provider-label">Factor cap (macro / personal):</span>
-      <span class="provider-value">{{ val("factors.max_macro") }} / {{ val("factors.max_personal") }}</span>
-    </div>
-    <div class="provider-status">
-      <span class="provider-label">Step length min/max (days):</span>
-      <span class="provider-value">{{ val("step.min_days") }} / {{ val("step.max_days") }}</span>
     </div>
   </div>
 

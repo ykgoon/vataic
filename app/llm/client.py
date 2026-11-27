@@ -85,9 +85,9 @@ class LLMClient:
         """Defaults come from settings (env-configured); the old hardcoded
         defaults (300/4) silently overrode LLM_REQUEST_TIMEOUT_S etc. because
         `300 or settings.x` is always 300."""
-        from app.config import settings
+        from app.config import llm_api_key, settings
         self.base_url = (base_url or settings.llm_base_url).rstrip("/")
-        self.api_key = api_key or settings.llm_api_key
+        self.api_key = api_key or llm_api_key()
         # Default model: the effective configured primary (DB settings row
         # first, then env). Blank is a valid value — the provider then
         # applies its own default model; no hardcoded fallback is

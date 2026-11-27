@@ -23,6 +23,13 @@ def apply_pending(db_path: str | None = None) -> list[str]:
             conn.executescript(sql)
             conn.execute("INSERT OR IGNORE INTO schema_migrations(version) VALUES (?)", (ver,))
             done.append(ver)
+    # One-time env->DB settings bootstrap so an upgrade from the env-configured
+    # deployment keeps its effective values; the settings page owns them after.
+    try:
+        from app.config import bootstrap_env_to_db
+        bootstrap_env_to_db(db_path)
+    except Exception:
+        pass
     return done
 
 

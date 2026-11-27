@@ -1,20 +1,12 @@
-"""Settings panel: provider, budgets, thresholds, role models.
+"""Settings page: view + edit runtime config, test the LLM provider.
 
-Values shown are the *effective* runtime configuration: env-backed
-(app.config.settings) merged with DB-stored overrides (settings table).
-The DB table is auto-seeded with defaults on first view, so the page never
-shows "not configured" for values that actually exist.
+Effective values = DB settings rows (the primary source) with env fallbacks
+for keys that have no row. Edits write straight to the settings table; LLM
+API keys and the Flask secret stay env-only and are never editable here.
 """
-from flask import Blueprint, request, render_template, redirect
+from flask import Blueprint, request, render_template, redirect, flash
 
 bp = Blueprint("settings_view", __name__)
-
-_NUM_KEYS = {
-    "budget.max_steps", "budget.max_runtime_s", "budget.max_branches",
-    "beam.width", "beam.reserved_divergent",
-    "merge.distance_threshold", "factors.max_macro", "factors.max_personal",
-    "step.min_days", "step.max_days",
-}
 
 
 def _seed_defaults() -> None:
@@ -23,6 +15,12 @@ def _seed_defaults() -> None:
         seed()
     except Exception:
         pass
+
+
+def _rows(db_path=None) -> dict:
+    from app.db import get_conn
+    with get_conn(db_path) as c:
+        return {r["key"]: r["value"] for r in c.execute("SELECT key,value FROM settings")}
 
 
 def _effective(db_rows: dict) -> dict:
@@ -42,16 +40,22 @@ def _effective(db_rows: dict) -> dict:
         "llm.primary_model": settings.llm_primary_model,
         "llm.strong_model": settings.llm_strong_model or settings.llm_primary_model,
         "llm.cheap_model": settings.llm_cheap_model or settings.llm_primary_model,
+        "llm.timeout_s": settings.llm_timeout_s,
+        "llm.max_attempts": settings.llm_max_attempts,
         "budget.max_steps": settings.budget_max_steps,
         "budget.max_runtime_s": settings.budget_max_runtime_s,
         "budget.max_branches": settings.budget_max_branches,
         "beam.width": settings.beam_width,
         "beam.reserved_divergent": settings.beam_reserved_divergent,
         "merge.distance_threshold": settings.merge_distance_threshold,
+        "branch.prob_threshold": settings.branch_prob_threshold,
+        "tail_risk.impact_threshold": settings.tail_risk_impact_threshold,
         "factors.max_macro": settings.factor_max_macro,
         "factors.max_personal": settings.factor_max_personal,
         "step.min_days": settings.step_min_days,
         "step.max_days": settings.step_max_days,
+        "epoch.interval_steps": settings.epoch_interval_steps,
+        "context.token_budget": settings.context_token_budget,
     }
     for k, v in db_rows.items():
         if k not in eff or v in (None, ""):
@@ -67,76 +71,76 @@ def _db_path_display() -> str:
     return str(resolve_db_path())
 
 
-def _llm_reachable() -> tuple[bool, str]:
-    """Probe the real API surface (GET /models) with the configured key.
-
-    The gateway root may 404 on OpenAI-compatible providers that only serve
-    /v1/*, so "any HTTP response" is not evidence of reachability.
-    """
-    import requests
-    from app.config import settings
-    url = settings.llm_base_url.rstrip("/")
-    if not url:
-        return False, "no base URL configured"
-    headers = {"Authorization": f"Bearer {settings.llm_api_key}"} if settings.llm_api_key else {}
-    try:
-        r = requests.get(url + "/models", headers=headers, timeout=3)
-        if r.status_code != 200:
-            return True, f"reachable (HTTP {r.status_code})"
-        try:
-            ids = [str(m.get("id", "")) for m in (r.json().get("data") or [])]
-        except Exception:
-            ids = []
-        if ids:
-            shown = ", ".join(ids[:3]) + (f" +{len(ids) - 3} more" if len(ids) > 3 else "")
-            return True, f"reachable — {len(ids)} model(s): {shown}"
-        return True, "reachable (no models listed)"
-    except Exception as e:
-        return False, f"unreachable: {type(e).__name__}"
-
-
 @bp.get("/settings")
 def view():
-    from app.db import get_conn
+    from app.config import llm_api_key
+    from app import settings_store
     _seed_defaults()
-    with get_conn() as c:
-        rows = {r["key"]: r["value"] for r in c.execute("SELECT key,value FROM settings")}
-    eff = _effective(rows)
+    eff = _effective(_rows())
+    base_url = eff.get("llm.base_url", "")
+    model_name = eff.get("llm.primary_model", "")
+
+    # Status: fast reachability probe of the current effective config.
+    probe = settings_store.probe_llm(base_url, llm_api_key(), model_name)
+    status = ("reachable — " + probe["detail"]) if probe["ok"] else probe["detail"]
 
     def val(k):
-        v = eff.get(k, "")
-        if k in _NUM_KEYS:
-            try:
-                return f"{int(float(v)):,}" if float(v) == int(float(v)) else str(v)
-            except Exception:
-                return str(v)
-        return str(v or "")
-
-    from app.config import settings
-    ok, reach = _llm_reachable()
-    provider_ok = ok and bool(settings.llm_base_url)
+        return str(eff.get(k, ""))
 
     return render_template("settings/index.html",
-        settings=rows,
+        settings_store=settings_store,
         eff=eff,
         val=val,
         provider_name=eff.get("llm.provider", ""),
-        base_url=eff.get("llm.base_url", ""),
-        model_name=eff.get("llm.primary_model", ""),
+        base_url=base_url,
+        model_name=model_name,
         strong_model=eff.get("llm.strong_model", ""),
         cheap_model=eff.get("llm.cheap_model", ""),
-        provider_status=("configured — " + reach) if provider_ok else ("not reachable — " + reach),
-        llm_key_set=bool(settings.llm_api_key),
+        provider_status=status,
+        llm_key_set=bool(llm_api_key()),
         data_key_set=False,  # no separate data-provider key in this version
-        version=rows.get("version", "0.1.0"),
+        version=_rows().get("version", "0.1.0"),
         db_path=_db_path_display())
 
 
 @bp.post("/settings")
 def save():
-    from app.db import get_conn
-    k, v = request.form.get("key", ""), request.form.get("value", "")
-    if k and "api_key" not in k and "secret" not in k:
-        with get_conn() as c:
-            c.execute("INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)", (k, v))
+    """Multi-field save: editable keys arrive as form fields named by key."""
+    from app import settings_store
+    from app.config import refresh
+    form = {k: v for k, v in request.form.items() if k in settings_store.ALLOWED}
+    if not form:
+        flash("No editable values were submitted.", "warning")
+        return redirect("/settings")
+    saved, errors = settings_store.save_many(form)
+    refresh()
+    for e in errors:
+        flash(e, "danger")
+    if saved:
+        flash(f"Saved {len(saved)} setting(s).", "success")
+    return redirect("/settings")
+
+
+@bp.post("/settings/test-llm")
+def test_llm():
+    """Test the LLM provider with the values currently in the form (or the
+    stored config when the test button is used outside an edit)."""
+    from app.config import llm_api_key, refresh
+    from app import settings_store
+
+    # Form-provided values win so an unsaved edit can be tested first.
+    base_url = request.form.get("llm.base_url", "").strip()
+    model = request.form.get("llm.primary_model", "").strip()
+    if not base_url:
+        refresh()
+        from app.config import settings
+        base_url = settings.llm_base_url
+        model = model or settings.llm_primary_model
+    # Optional inline key: NEVER stored — used for this probe only.
+    key = request.form.get("llm.api_key_test", "").strip() or llm_api_key()
+    probe = settings_store.probe_llm(base_url, key, model)
+    if probe["ok"]:
+        flash(f"Provider OK — {probe['detail']}", "success")
+    else:
+        flash(f"Provider test failed ({probe['stage']}): {probe['detail']}", "danger")
     return redirect("/settings")

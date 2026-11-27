@@ -1,11 +1,11 @@
 """Flask application factory with proper template rendering."""
-import os
 from flask import Flask, render_template
 
 
 def create_app(config_override: dict | None = None) -> Flask:
     app = Flask(__name__, template_folder="templates", static_folder="static")
-    app.config["SECRET_KEY"] = os.environ.get("FLASK_SECRET_KEY", "change-me")
+    from app.config import flask_secret_key
+    app.config["SECRET_KEY"] = flask_secret_key()
     if config_override:
         app.config.update(config_override)
 

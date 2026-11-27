@@ -5,9 +5,9 @@ analysis but is not one (decision 2026-11-01): scenarios must fail fast at
 worker pickup with a clear, retryable error instead of silently degrading.
 VATAIC_ALLOW_HEURISTIC=1 restores the fallback behavior (tests, emergencies).
 """
-import os
-
 import requests
+
+from app.config import allow_heuristic
 
 
 def provider_status(db_path=None) -> dict:
@@ -21,14 +21,14 @@ def provider_status(db_path=None) -> dict:
     - Reachable without a listable catalog (common for OpenAI-compatible
       proxies) -> ok, noted in the detail.
     """
-    from app.config import settings
+    from app.config import allow_heuristic, llm_api_key, settings
     from app.llm.client import model_for_phase
     base = settings.llm_base_url.rstrip("/")
     model = settings.llm_primary_model
     strong = model_for_phase("chat")
     if not base:
         return {"ok": False, "detail": "no LLM base URL configured", "model": model}
-    headers = {"Authorization": f"Bearer {settings.llm_api_key}"} if settings.llm_api_key else {}
+    headers = {"Authorization": f"Bearer {llm_api_key()}"} if llm_api_key() else {}
     try:
         r = requests.get(base + "/models", headers=headers, timeout=3)
     except Exception as e:
@@ -56,8 +56,6 @@ def provider_status(db_path=None) -> dict:
     return {"ok": True, "detail": f"reachable — {len(ids)} model(s) including configured", "model": model}
 
 
-def allow_heuristic() -> bool:
-    return os.environ.get("VATAIC_ALLOW_HEURISTIC", "") in ("1", "true", "yes")
 
 
 def require_provider(scenario_id: str, db_path=None) -> None:
